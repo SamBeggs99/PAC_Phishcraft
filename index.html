@@ -6,21 +6,119 @@
     <title>Enhanced Phishing Email Game</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables
+        window.firebaseApp = null;
+        window.db = null;
+        window.auth = null;
+        window.currentUserId = null;
+        // Make highScore a window property so it's globally accessible
+        window.highScore = parseInt(localStorage.getItem('phishcraftHighScore')) || 0;
+
+        // Your web app's Firebase configuration - HARDCODED
+        const firebaseConfig = {
+            apiKey: "AIzaSyBXvF41cPghq_5oRURD3lePBEb9NFm_mDI",
+            authDomain: "phishcraft-d6a12.firebaseapp.com",
+            projectId: "phishcraft-d6a12",
+            storageBucket: "phishcraft-d6a12.firebasestorage.app",
+            messagingSenderId: "784034453473",
+            appId: "1:784034453473:web:841ca0d15d5215346464a0"
+        };
+
+        // Use projectId from your firebaseConfig as the appId for Firestore paths
+        const appId = firebaseConfig.projectId;
+
+        if (Object.keys(firebaseConfig).length > 0) {
+            window.firebaseApp = initializeApp(firebaseConfig);
+            window.db = getFirestore(window.firebaseApp);
+            window.auth = getAuth(window.firebaseApp);
+
+            // Sign in anonymously
+            onAuthStateChanged(window.auth, async (user) => {
+                if (user) {
+                    window.currentUserId = user.uid;
+                    console.log("Firebase: User is signed in:", user.uid);
+                } else {
+                    console.log("Firebase: No user is signed in. Attempting anonymous sign-in.");
+                    try {
+                        // Directly attempt anonymous sign-in
+                        await signInAnonymously(window.auth);
+                        window.currentUserId = window.auth.currentUser.uid;
+                        console.log("Firebase: Signed in anonymously:", window.currentUserId);
+                    } catch (error) {
+                        console.error("Firebase Auth Error during anonymous sign-in:", error);
+                    }
+                }
+                // Ensure high score is updated in Firebase after auth is ready
+                // Pass currentMode to updateHighScoreInFirestore
+                window.updateHighScoreInFirestore(window.currentMode);
+            });
+        } else {
+            console.warn("Firebase config not found. Firebase features will be disabled.");
+        }
+
+        // Function to update high score in Firestore
+        // Added 'mode' parameter to track which game mode the score came from
+        window.updateHighScoreInFirestore = async (mode) => {
+            if (window.db && window.currentUserId && window.highScore > 0) {
+                try {
+                    // Store in a public collection for admin viewing
+                    const publicScoresRef = doc(window.db, `artifacts/${appId}/public/data/high_scores_public`, window.currentUserId);
+                    await setDoc(publicScoresRef, {
+                        userId: window.currentUserId,
+                        highScore: window.highScore,
+                        gameMode: mode, // Store the game mode
+                        lastUpdated: new Date().toISOString()
+                    }, { merge: true }); // Use merge to update existing document
+
+                    console.log("High score updated in Firestore for user:", window.currentUserId, "Score:", window.highScore, "Mode:", mode);
+                } catch (e) {
+                    console.error("Error updating high score in Firestore:", e);
+                }
+            }
+        };
+
+        // Function to fetch all user scores for admin
+        window.fetchAllUserScores = async () => {
+            if (!window.db) {
+                console.error("Firestore not initialized.");
+                return [];
+            }
+            try {
+                const publicScoresCollectionRef = collection(window.db, `artifacts/${appId}/public/data/high_scores_public`);
+                const querySnapshot = await getDocs(publicScoresCollectionRef);
+                const scores = [];
+                querySnapshot.forEach((doc) => {
+                    scores.push(doc.data());
+                });
+                console.log("Fetched all user scores:", scores);
+                return scores;
+            } catch (e) {
+                console.error("Error fetching all user scores from Firestore:", e);
+                return [];
+            }
+        };
+    </script>
     <style>
-        /* Custom styles for Dark Mode with Aesthetic Enhancements */
+        /* Custom styles for Dark Mode with Aesthetic Enhancements (Black, Red, Grey Theme) */
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #121212; /* Very dark background for depth */
+            background-color: #212322; /* Carbon */
             display: flex;
             justify-content: center;
-            align-items: flex-start;
+            align-items: flex-start; /* Align items to the top for better mobile scrolling */
             min-height: 100vh;
             padding: 20px;
             box-sizing: border-box;
-            color: #e0e0e0; /* Softer light text color */
+            color: #D0D3D4; /* Concrete */
         }
         .container {
-            background-color: #1e1e1e; /* Slightly lighter dark for main content */
+            background-color: #2a2a2a; /* Slightly lighter dark for main content, adjusted to fit theme */
             border-radius: 18px; /* Slightly more rounded corners */
             box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5); /* Deeper, softer shadow */
             max-width: 1200px;
@@ -28,1698 +126,747 @@
             padding: 40px; /* Increased padding */
             display: flex;
             flex-direction: column;
-            gap: 30px; /* Increased gap between sections */
-            border: 1px solid rgba(255, 255, 255, 0.08); /* Subtle border for definition */
-        }
-        @media (min-width: 1024px) {
-            .main-content-area {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 50px; /* More space between columns */
-            }
+            gap: 30px; /* Increased gap for better spacing */
+            position: relative; /* For modal positioning */
         }
 
-        h1 {
-            color: #ffffff; /* Pure white for main heading */
-            text-shadow: 0 2px 5px rgba(0,0,0,0.3); /* Subtle text shadow */
-        }
-
-        label {
-            color: #c0c0c0; /* Slightly desaturated label color */
-        }
-
-        select,
-        input[type="checkbox"] + label {
-            border: 1px solid #333; /* Darker, subtle border */
-            border-radius: 10px; /* More rounded inputs */
-            padding: 14px 18px; /* More generous padding */
-            font-size: 1.05rem; /* Slightly larger font */
-            background-color: #2a2a2a; /* Slightly darker input background */
-            color: #e0e0e0;
-            transition: all 0.3s ease; /* Smooth transition for all properties */
-            appearance: none; /* Remove default select arrow */
-            background-image: url('data:image/svg+xml;utf8,<svg fill="%23e0e0e0" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>'); /* Custom SVG arrow */
-            background-repeat: no-repeat;
-            background-position: right 15px center;
-            background-size: 1em;
-        }
-        select:focus {
-            outline: none;
-            border-color: #8a2be2; /* BlueViolet for focus - new accent */
-            box-shadow: 0 0 0 4px rgba(138, 43, 226, 0.4); /* Wider, softer glow */
-            background-color: #383838; /* Slight change on focus */
-        }
-        select option {
-            background-color: #2a2a2a; /* Keep options dark */
-            color: #e0e0e0;
-        }
-
-        /* Enhanced styles for the primary Score Email button */
-        #scoreBtn, #checkPhishBtn { /* Apply to both primary action buttons */
-            background-image: linear-gradient(145deg, #8a2be2 0%, #6a0dad 100%); /* BlueViolet gradient */
-            color: white;
-            padding: 18px 35px; /* Larger padding for prominence */
-            border-radius: 12px; /* Slightly more rounded */
-            font-size: 1.25rem; /* Larger font size */
-            font-weight: 700; /* Bolder text */
-            cursor: pointer;
-            transition: all 0.3s ease; /* Smooth transitions */
-            box-shadow: 0 10px 30px rgba(138, 43, 226, 0.4); /* Deeper, more noticeable shadow */
-            border: none;
-            letter-spacing: 0.08em; /* Slightly more spaced letters */
-            margin-bottom: 15px; /* Add some space below it */
-        }
-        #scoreBtn:hover, #checkPhishBtn:hover {
-            background-image: linear-gradient(145deg, #6a0dad 0%, #8a2be2 100%); /* Invert gradient on hover */
-            transform: translateY(-4px); /* More pronounced lift */
-            box-shadow: 0 15px 35px rgba(138, 43, 226, 0.5); /* Stronger shadow on hover */
-        }
-        #scoreBtn:active, #checkPhishBtn:active {
-            transform: translateY(0);
-            box-shadow: 0 6px 15px rgba(138, 43, 226, 0.3);
-        }
-
-        /* Standard button styles for other buttons (like Reset, Report) */
-        button {
-            background-image: linear-gradient(145deg, #4b5563 0%, #374151 100%); /* Default gray gradient */
-            color: white;
-            padding: 16px 30px; /* Slightly smaller than primary */
-            border-radius: 10px;
-            font-size: 1.15rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 8px 25px rgba(75, 85, 99, 0.3);
-            border: none;
-            letter-spacing: 0.05em;
-        }
-        button:hover {
-            background-image: linear-gradient(145deg, #374151 0%, #4b5563 100%);
-            transform: translateY(-3px);
-            box-shadow: 0 12px 30px rgba(75, 85, 99, 0.4);
-        }
-        button:active {
-            transform: translateY(0);
-            box-shadow: 0 4px 10px rgba(75, 85, 99, 0.2);
-        }
-        /* Ensure reset button specifically uses the gray style if it's not the primary #scoreBtn */
-        button#resetBtn {
-            background-image: linear-gradient(145deg, #4b5563 0%, #374151 100%);
-            box-shadow: 0 8px 25px rgba(75, 85, 99, 0.3);
-        }
-        button#resetBtn:hover {
-            background-image: linear-gradient(145deg, #374151 0%, #4b5563 100%);
-            box-shadow: 0 12px 30px rgba(75, 85, 99, 0.4);
-        }
-        /* Style for Report Phish button */
-        #reportPhishBtn {
-            background-image: linear-gradient(145deg, #10b981 0%, #059669 100%); /* Green gradient */
-            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3);
-            margin-top: 15px; /* Space from score result */
-            width: fit-content; /* Only take content width */
-            align-self: center; /* Center the button */
-        }
-        #reportPhishBtn:hover {
-            background-image: linear-gradient(145deg, #059669 0%, #10b981 100%);
-            box-shadow: 0 12px 30px rgba(16, 185, 129, 0.4);
-        }
-        /* Styles for mode switch buttons */
-        .mode-switch-buttons button {
-            background-image: linear-gradient(145deg, #5b5b5b 0%, #3a3a3a 100%); /* Slightly lighter gray */
-            padding: 12px 25px;
-            font-size: 1rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            transition: all 0.2s ease;
-        }
-        .mode-switch-buttons button.active,
-        .mode-switch-buttons button:hover {
-            background-image: linear-gradient(145deg, #8a2be2 0%, #6a0dad 100%); /* Accent color */
-            box-shadow: 0 5px 20px rgba(138, 43, 226, 0.3);
-            transform: translateY(-2px);
-        }
-
-
-        .score-box {
-            background-color: #282828; /* Darker score box */
-            border-left: 6px solid #8a2be2; /* Accent color border */
-            padding: 25px; /* More padding */
-            border-radius: 12px;
-            margin-top: 30px;
-            font-size: 1.15rem;
-            line-height: 1.7;
-            color: #e0e0e0;
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-            display: flex; /* Make it a flex container for the button */
-            flex-direction: column;
-            align-items: flex-start;
-        }
-        .score-value {
-            font-size: 2.8rem; /* Larger score value */
-            font-weight: bold;
-            color: #9370db; /* MediumPurple for score */
-            text-shadow: 0 1px 3px rgba(0,0,0,0.2);
-        }
-        #scoreInterpretation {
-            font-size: 1.3rem;
+        /* Mode Switcher Button Styling */
+        .mode-switcher-btn {
+            padding: 12px 25px; /* Larger padding for easier tapping */
+            border-radius: 12px; /* Rounded corners */
             font-weight: 600;
-            color: #b08ee6; /* Lighter purple for interpretation */
-            margin-top: 8px;
-        }
-        .feedback-item {
-            display: flex;
-            align-items: flex-start;
-            margin-bottom: 10px;
-            padding: 5px 0;
-        }
-        .feedback-icon {
-            margin-right: 12px;
-            font-size: 1.3rem; /* Larger icons */
-            color: #9370db; /* MediumPurple for icons */
-        }
-        .how-to-play {
-            background-color: #242424; /* Even darker for this section */
-            border-radius: 15px;
-            padding: 30px;
-            border: 1px solid rgba(255, 255, 255, 0.05); /* Very subtle border */
-            color: #d0d0d0;
-            box-shadow: inset 0 2px 10px rgba(0,0,0,0.1); /* Inner shadow for depth */
-        }
-        .how-to-play h2 {
-            color: #ffffff;
-            margin-bottom: 20px;
-            font-size: 2.2rem; /* Larger heading */
-        }
-        .how-to-play ul {
-            list-style: none; /* Remove default disc */
-            margin-left: 0;
-            padding-left: 0;
-        }
-        .how-to-play li {
-            margin-bottom: 10px;
-            color: #b0b0b0;
-            position: relative;
-            padding-left: 25px; /* Space for custom bullet */
-        }
-        .how-to-play li::before {
-            content: '✨'; /* Custom bullet point */
-            position: absolute;
-            left: 0;
-            color: #8a2be2; /* Accent color for bullet */
-            font-size: 1.1em;
-            top: 2px;
-        }
-
-        /* Style for checkbox group */
-        .checkbox-group {
-            display: flex;
-            flex-direction: column;
-            gap: 10px; /* Space between each checkbox label */
-        }
-        .checkbox-group label {
-            display: flex; /* Aligns checkbox and text horizontally within each label */
-            align-items: center; /* Vertically centers checkbox with text */
-            border: 1px solid #333;
-            background-color: #2a2a2a;
-            color: #e0e0e0;
-            border-radius: 10px;
-            padding: 12px 18px; /* Enhanced padding for better visual spacing */
-            transition: all 0.2s ease-in-out;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+            background-color: #333; /* Default background - dark grey */
+            color: #D0D3D4; /* Concrete */
+            border: none;
             cursor: pointer;
         }
-        .checkbox-group label:hover {
-            background-color: #3a3a3a; /* Darker hover */
-            border-color: #8a2be2; /* Accent color border */
+        .mode-switcher-btn.active {
+            background-color: #AB2328; /* Bright Red */
+            color: white;
+            box-shadow: 0 6px 20px rgba(171, 35, 40, 0.4); /* Bright Red shadow */
+            transform: translateY(-2px); /* Slight lift */
         }
-        .checkbox-group input[type="checkbox"] {
-            margin-right: 12px; /* Increased margin for more separation from text */
-            flex-shrink: 0; /* Prevents checkbox from shrinking */
-            accent-color: #8a2be2; /* Accent color for checkbox itself */
-            transform: scale(1.1); /* Slightly larger checkbox */
-        }
-
-        /* Inbox Preview Specific Styles */
-        .inbox-preview {
-            background-color: #242424; /* Darker background for preview */
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 15px;
-            box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.2); /* Inner shadow for screen effect */
-            padding: 30px;
-            min-height: 450px; /* Slightly taller */
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        .email-header {
-            border-bottom: 1px solid #333;
-            padding-bottom: 20px;
-            margin-bottom: 20px;
-        }
-        .email-subject {
-            font-size: 1.65rem; /* Larger subject in preview */
-            font-weight: 700;
-            color: #ffffff;
-        }
-        .email-from {
-            font-size: 1rem;
-            color: #a0a0a0; /* Softer gray */
-        }
-        .email-body-preview {
-            flex-grow: 1;
-            font-size: 1.05rem; /* Slightly larger body text */
-            line-height: 1.7;
-            color: #e0e0e0;
-            overflow-y: auto;
-            padding-right: 15px; /* More space for scrollbar */
-            scrollbar-width: thin; /* Firefox */
-            scrollbar-color: #8a2be2 #333; /* Thumb and track color */
-        }
-        .email-body-preview::-webkit-scrollbar {
-            width: 8px;
-        }
-        .email-body-preview::-webkit-scrollbar-track {
-            background: #333;
-            border-radius: 10px;
-        }
-        .email-body-preview::-webkit-scrollbar-thumb {
-            background-color: #8a2be2; /* Accent color scrollbar */
-            border-radius: 10px;
-            border: 2px solid #333;
+        .mode-switcher-btn:hover:not(.active) {
+            background-color: #76232F; /* Cherry on hover */
+            transform: translateY(-1px);
         }
 
-        .email-body-preview a {
-            color: #9370db; /* MediumPurple for links */
-            text-decoration: underline;
+        /* General Button Styling */
+        .btn-primary {
+            background-color: #AB2328; /* Bright Red */
+            color: white;
+            padding: 12px 25px;
+            border-radius: 12px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            border: none;
             cursor: pointer;
-            transition: color 0.2s ease;
         }
-        .email-body-preview a:hover {
-            color: #b08ee6; /* Lighter purple on hover */
-        }
-        .email-body-preview p {
-            margin-bottom: 1.2em; /* More spacing between paragraphs */
+        .btn-primary:hover {
+            background-color: #76232F; /* Cherry on hover */
+            transform: translateY(-1px);
         }
 
-        /* Info icon for explanations */
-        .info-label {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            width: 100%;
-            color: #e0e0e0;
-        }
-        .info-button {
-            font-size: 1.2rem; /* Larger info button */
-            color: #9370db; /* MediumPurple for info button */
-            transition: all 0.2s ease;
-        }
-        .info-button:hover {
-            background-color: #383838; /* Darker hover for info button */
-            color: #c0a0f0; /* Lighter purple on hover */
-        }
-
-        /* Modal for explanations */
+        /* Modal Styling */
         .modal {
-            position: fixed;
-            z-index: 1000;
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1000; /* Sit on top */
             left: 0;
             top: 0;
-            width: 100%;
-            height: 100%;
-            overflow: auto;
-            background-color: rgba(0,0,0,0.6); /* Slightly darker overlay */
-            display: flex;
-            align-items: center;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgba(0, 0, 0, 0.7); /* Black w/ opacity */
             justify-content: center;
-            visibility: hidden;
-            opacity: 0;
-            transition: visibility 0s, opacity 0.3s;
+            align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
         }
         .modal.show {
-            visibility: visible;
-            opacity: 1;
+            display: flex; /* Show when active */
         }
         .modal-content {
-            background-color: #2a2a2a; /* Darker modal background */
-            color: #e0e0e0;
+            background-color: #2a2a2a; /* Darker background for modal content */
+            margin: auto;
             padding: 30px;
             border-radius: 15px;
-            width: 80%;
-            max-width: 500px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.6); /* Stronger shadow */
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            width: 90%; /* Responsive width */
+            max-width: 700px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
             position: relative;
-            transform: translateY(-20px);
-            transition: transform 0.3s ease-out;
-            display: flex; /* Added for flex layout */
-            flex-direction: column; /* Stack content vertically */
-            max-height: 90vh; /* Limit modal height to viewport */
-        }
-        .modal.show .modal-content {
-            transform: translateY(0);
+            animation: fadeIn 0.3s ease-out;
+            max-height: 90vh; /* Limit height for mobile */
+            overflow-y: auto; /* Scroll if content overflows */
         }
         .close-button {
-            color: #e0e0e0;
-            float: right;
+            color: #D0D3D4; /* Concrete */
             font-size: 28px;
             font-weight: bold;
+            position: absolute;
+            top: 15px;
+            right: 20px;
             cursor: pointer;
+            transition: color 0.2s;
         }
         .close-button:hover,
         .close-button:focus {
-            color: #ffffff;
+            color: #fff;
             text-decoration: none;
-        }
-        .modal-content h3 {
-            color: #ffffff;
-        }
-        .modal-content p {
-            color: #c0c0c0;
-        }
-
-        /* Red flag indicators in preview (colors remain high contrast, slightly adjusted for harmony) */
-        .preview-element.red-flag {
-            box-shadow: inset 0 0 0 2px #ff6b6b; /* Red border on identified phishing elements */
-            border-radius: 5px;
-            padding: 2px 5px;
-        }
-        .preview-element.wrong-flag {
-            box-shadow: inset 0 0 0 2px #fcd34d; /* Yellow border on incorrectly identified elements */
-            border-radius: 5px;
-            padding: 2px 5px;
-        }
-
-        /* Styles for the toggle switch for legitimate example */
-        .toggle-switch {
-            -webkit-appearance: none;
-            -moz-appearance: none;
-            appearance: none;
-            width: 40px;
-            height: 20px;
-            border-radius: 10px;
-            background-color: #4b5563; /* Gray background when off */
-            outline: none;
             cursor: pointer;
-            position: relative;
-            transition: background-color 0.3s;
-        }
-        .toggle-switch:checked {
-            background-color: #8a2be2; /* BlueViolet when on */
-        }
-        .toggle-switch::before {
-            content: '';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background-color: #ffffff;
-            transition: transform 0.3s;
-        }
-        .toggle-switch:checked::before {
-            transform: translateX(20px);
         }
 
-        /* Reporting resources styling */
-        .reporting-resources {
-            background-color: #242424;
-            border-radius: 10px;
-            padding: 20px;
-            margin-top: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            color: #d0d0d0;
-        }
-        .reporting-resources ul {
-            list-style: disc;
-            margin-left: 20px;
-        }
-        .reporting-resources a {
-            color: #9370db;
-            text-decoration: underline;
-        }
-        .reporting-resources a:hover {
-            color: #b08ee6;
-        }
-        /* General Tips button styling */
-        #generalTipsBtn {
-            background-image: linear-gradient(145deg, #10b981 0%, #059669 100%); /* Green gradient */
-            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3);
-            margin-top: 20px; /* Space from above elements */
-            width: fit-content;
-            align-self: center; /* Center the button */
-        }
-        #generalTipsBtn:hover {
-            background-image: linear-gradient(145deg, #059669 0%, #10b981 100%);
-            box-shadow: 0 12px 30px rgba(16, 185, 129, 0.4);
+        /* Keyframe for fade-in animation */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Specific style for the scrollable content within modals */
-        .modal-scroll-content {
-            overflow-y: auto;
-            flex-grow: 1; /* Allows it to take available space */
-            padding-right: 15px; /* Space for scrollbar */
-            scrollbar-width: thin; /* Firefox */
-            scrollbar-color: #8a2be2 #333; /* Thumb and track color */
-        }
-        .modal-scroll-content::-webkit-scrollbar {
-            width: 8px;
-        }
-        .modal-scroll-content::-webkit-scrollbar-track {
-            background: #333;
-            border-radius: 10px;
-        }
-        .modal-scroll-content::-webkit-scrollbar-thumb {
-            background-color: #8a2be2; /* Accent color scrollbar */
-            border-radius: 10px;
-            border: 2px solid #333;
+        /* Responsive adjustments for smaller screens */
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px; /* Reduce padding on smaller screens */
+                gap: 20px;
+            }
+            .mode-switcher-btn {
+                padding: 10px 20px;
+                font-size: 0.9rem;
+            }
+            .btn-primary {
+                padding: 10px 20px;
+                font-size: 0.9rem;
+            }
+            .modal-content {
+                width: 95%; /* Wider on very small screens */
+                padding: 20px;
+            }
+            .email-preview-content {
+                font-size: 0.875rem; /* Smaller font for email preview */
+            }
+            /* Ensure options stack vertically on small screens */
+            .email-part-options {
+                flex-direction: column;
+                gap: 15px;
+            }
         }
 
+        /* Specific styling for email preview content */
+        .email-preview-content {
+            background-color: #212322; /* Carbon */
+            border-radius: 10px;
+            padding: 25px;
+            min-height: 200px;
+            border: 1px solid #333; /* Adjusted border color */
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
+            overflow-y: auto; /* Enable scrolling for long emails */
+            max-height: 400px; /* Limit height */
+        }
+
+        /* Styling for the high score display */
+        #highScoreDisplay {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #D0D3D4; /* Concrete */
+            text-shadow: 0 0 8px rgba(208, 211, 212, 0.4); /* Concrete shadow */
+        }
+
+        /* Styling for selected options in build mode */
+        .email-part-option.selected {
+            border: 2px solid #AB2328; /* Bright Red border for selected */
+            box-shadow: 0 0 15px rgba(171, 35, 40, 0.5); /* Bright Red shadow */
+            transform: translateY(-2px);
+        }
+
+        /* Styling for clickable elements in spot mode */
+        .email-preview-content.spot-mode span.clickable-phish-element,
+        .email-preview-content.spot-mode a.clickable-phish-element { /* Added 'a' for links */
+            cursor: pointer;
+            border-bottom: 2px dashed #AB2328; /* Bright Red dashed underline */
+            transition: background-color 0.2s ease;
+        }
+
+        .email-preview-content.spot-mode span.clickable-phish-element:hover,
+        .email-preview-content.spot-mode a.clickable-phish-element:hover { /* Added 'a' for links */
+            background-color: rgba(171, 35, 40, 0.2); /* Light Bright Red highlight on hover */
+        }
+
+        .email-preview-content.spot-mode span.clickable-phish-element.identified,
+        .email-preview-content.spot-mode a.clickable-phish-element.identified { /* Added 'a' for links */
+            background-color: rgba(208, 211, 212, 0.3); /* Concrete highlight when identified */
+            border-bottom: 2px solid #D0D3D4; /* Solid Concrete underline */
+            cursor: default; /* No longer clickable */
+        }
+
+        /* Hide specific elements in spot mode */
+        .spot-mode-hidden {
+            display: none !important;
+        }
+
+        /* Desktop specific grid for email options */
+        .email-part-options {
+            display: flex; /* Default to flex for mobile */
+            flex-direction: column; /* Default to column for mobile */
+            gap: 15px;
+        }
+
+        /* Adjust the main emailBuilder grid for desktop */
+        @media (min-width: 1024px) { /* Apply for large desktop screens */
+            #emailBuilder {
+                grid-template-columns: repeat(4, minmax(200px, 1fr)); /* 4 columns for categories */
+                gap: 20px; /* Adjust gap between category columns */
+            }
+        }
+
+        @media (min-width: 769px) and (max-width: 1023px) { /* For medium desktop screens */
+            #emailBuilder {
+                grid-template-columns: repeat(2, minmax(250px, 1fr)); /* 2 columns for categories */
+                gap: 20px;
+            }
+        }
+
+
+        @media (min-width: 769px) { /* Apply for desktop and larger */
+            .email-part-options {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); /* Even smaller min-width for options */
+                gap: 10px; /* Reduced gap */
+                justify-content: center; /* Center the grid items if they don't fill the row */
+            }
+            .email-part-option {
+                max-width: 180px; /* Reduced max-width for individual buttons */
+                width: 100%; /* Ensure they still take available width up to max-width */
+                margin: 0 auto; /* Center buttons within their grid cells */
+                padding: 8px 12px; /* Further reduced padding */
+                font-size: 0.85rem; /* Further smaller font size */
+            }
+        }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1 class="text-4xl font-extrabold text-center mb-6">
-            Phishing Email Awareness Game
-        </h1>
+<body class="bg-gray-900 text-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+    <div class="container bg-gray-800 rounded-2xl shadow-2xl p-8 md:p-10 lg:p-12">
+        <h1 class="text-4xl md:text-5xl font-extrabold text-center text-AB2328 mb-6">PhishCraft</h1>
 
-        <div class="mode-switch-buttons flex justify-center gap-4 mb-8">
-            <button id="buildModeBtn" class="active">Build Your Phish</button>
-            <button id="spotModeBtn">Spot the Phish</button>
+        <!-- Mode Switcher -->
+        <div class="flex justify-center gap-4 mb-8">
+            <button id="buildModeBtn" class="mode-switcher-btn active">Build Your Phish</button>
+            <button id="spotModeBtn" class="mode-switcher-btn">Spot the Phish</button>
         </div>
 
-        <div class="how-to-play">
-            <h2 class="text-2xl font-bold">How to Play:</h2>
-            <ul class="text-lg">
-                <li>Your goal is to select options that create a convincing (fake) phishing email.</li>
-                <li>**Click the "i" icons** next to each input for tips on creating effective phishing tactics.</li>
-                <li>Watch the "Inbox Preview" update as you make your selections. **Hover over links** in the preview to see their true destination.</li>
-                <li>Click "Score Email" to see your effectiveness and a detailed breakdown!</li>
-                <li>**Use the "Show Legitimate Example" toggle** to see what a safe email looks like.</li>
-            </ul>
-        </div>
-        <div id="highScores" class="score-box">
-            <h3 class="text-xl font-bold mb-2">High Scores:</h3>
-            <p>Build Your Phish: <span id="buildHighScore">0</span> / 100</p>
-            <p>Spot the Phish: <span id="spotHighScore">0</span> / 100</p>
+        <!-- High Score Display -->
+        <div class="text-center mb-6">
+            <p class="text-lg text-D0D3D4">High Score: <span id="highScoreDisplay" class="text-D0D3D4 text-4xl font-bold">0</span></p>
+            <!-- Global high score, applies to both games -->
         </div>
 
-        <button id="generalTipsBtn">General Phishing Prevention Tips</button> <!-- NEW BUTTON -->
+        <!-- Game Instructions Section -->
+        <div id="gameInstructions" class="p-6 bg-gray-800 rounded-lg shadow-inner border border-gray-700">
+            <!-- Instructions will be loaded here by JavaScript -->
+        </div>
 
-        <div class="main-content-area">
-            <div id="buildModeSection" class="form-section">
-                <div class="mb-4">
-                    <label class="block text-lg font-semibold mb-2 info-label">
-                        Sender's Email:
-                        <button class="info-button" data-info-target="sender">i</button>
-                    </label>
-                    <select id="sender" class="block appearance-none w-full py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:border-indigo-500 shadow-sm">
-                        <option value="0" data-display="[Select a sender...]">Select a sender...</option>
-                        <option value="20" data-display="support@amaz0n.com">support@amaz0n.com (Typo/Homoglyph)</option>
-                        <option value="18" data-display="security-update@apple-verify.net">security-update@apple-verify.net (Impersonation + Suspicious TLD)</option>
-                        <option value="15" data-display="noreply@yourbank-online.info">noreply@yourbank-online.info (Impersonation + Generic Subdomain)</option>
-                        <option value="10" data-display="admin@company-it.org">admin@company-it.org (Generic + Suspicious TLD)</option>
-                        <option value="0" data-display="no-reply@legitcompany.com">no-reply@legitcompany.com (Legitimate-looking)</option>
-                    </select>
-                </div>
-
-                 <!-- NEW: Sender Name Field -->
-                <div class="mb-4">
-                    <label class="block text-lg font-semibold mb-2 info-label">
-                        Sender Display Name:
-                        <button class="info-button" data-info-target="senderName">i</button>
-                    </label>
-                    <select id="senderName" class="block appearance-none w-full py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:border-indigo-500 shadow-sm">
-                        <option value="0" data-display="[Select sender display name...]">Select sender display name...</option>
-                        <option value="15" data-display="Microsoft Support">Microsoft Support (Spoofed Company Name)</option>
-                        <option value="12" data-display="Your Bank Security">Your Bank Security (Generic Impersonation)</option>
-                        <option value="10" data-display="Administrator">Administrator (Generic Role)</option>
-                        <option value="0" data-display="John Doe">John Doe (Personalized Name)</option>
-                    </select>
-                </div>
-
-                <div class="mb-4">
-                    <label class="block text-lg font-semibold mb-2 info-label">
-                        Subject Line:
-                        <button class="info-button" data-info-target="subject">i</button>
-                    </label>
-                    <select id="subject" class="block appearance-none w-full py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:border-indigo-500 shadow-sm">
-                        <option value="0" data-display="[Select a subject...]">Select a subject...</option>
-                        <option value="20" data-display="URGENT: Your Account Has Been Suspended!">URGENT: Your Account Has Been Suspended!</option>
-                        <option value="18" data-display="Security Alert: Unusual Activity Detected!">Security Alert: Unusual Activity Detected!</option>
-                        <option value="15" data-display="Action Required: Verify Your Information">Action Required: Verify Your Information</option>
-                        <option value="10" data-display="Invoice #123456 - Payment Due">Invoice #123456 - Payment Due</option>
-                        <option value="0" data-display="Your Monthly Statement Is Ready">Your Monthly Statement Is Ready</option>
-                    </select>
-                </div>
-
-                <div class="mb-4">
-                    <label class="block text-lg font-semibold mb-2 info-label">
-                        Email Greeting:
-                        <button class="info-button" data-info-target="greeting">i</button>
-                    </label>
-                    <select id="greeting" class="block appearance-none w-full py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:border-indigo-500 shadow-sm">
-                        <option value="0" data-display="[Select a greeting...]">Select a greeting...</option>
-                        <option value="10" data-display="Dear Customer,">Dear Customer,</option>
-                        <option value="8" data-display="Dear Valued User,">Dear Valued User,</option>
-                        <option value="5" data-display="Hello,">Hello,</option>
-                        <option value="0" data-display="Dear [Your Name],">Dear [Your Name],</option>
-                    </select>
-                </div>
-
-                <div class="mb-4">
-                    <label class="block text-lg font-semibold mb-2 info-label">
-                        Main Email Content/Threat:
-                        <button class="info-button" data-info-target="mainContent">i</button>
-                    </label>
-                    <select id="mainContent" class="block appearance-none w-full py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:border-indigo-500 shadow-sm">
-                        <option value="0" data-display="[Select main content...]">Select main content...</option>
-                        <option value="20" data-display="Your account has been suspended due to suspicious activity. Click immediately to restore access.">Your account has been suspended due to suspicious activity. Click immediately to restore access.</option>
-                        <option value="18" data-display="We've detected unauthorized login attempts. Verify your details now to prevent further issues.">We've detected unauthorized login attempts. Verify your details now to prevent further issues.</option>
-                        <option value="15" data-display="Your payment for invoice #XYZ is overdue. Click to review and pay to avoid service interruption.">Your payment for invoice #XYZ is overdue. Click to review and pay to avoid service interruption.</option>
-                        <option value="10" data-display="Congratulations! You've won a cash prize! Claim it by providing your banking information.">Congratulations! You've won a cash prize! Claim it by providing your banking information.</option>
-                        <option value="0" data-display="Important updates about our service and new features.">Important updates about our service and new features.</option>
-                    </select>
-                </div>
-
-                <!-- NEW: Grammar and Spelling Field -->
-                <div class="mb-4">
-                    <label class="block text-lg font-semibold mb-2 info-label">
-                        Grammar and Spelling:
-                        <button class="info-button" data-info-target="grammarSpelling">i</button>
-                    </label>
-                    <select id="grammarSpelling" class="block appearance-none w-full py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:border-indigo-500 shadow-sm">
-                        <option value="0" data-display="[Select grammar quality...]">Select grammar quality...</option>
-                        <option value="15" data-display="Obvious Errors">Obvious Errors (e.g., 'your' vs 'you\'re', random capitalization)</option>
-                        <option value="10" data-display="Minor Errors">Minor Errors (e.g., missing commas, awkward phrasing)</option>
-                        <option value="0" data-display="No Errors">No Errors</option>
-                    </select>
-                </div>
-
-                <div class="mb-4">
-                    <label class="block text-lg font-semibold mb-2 info-label">
-                        Information Request:
-                        <button class="info-button" data-info-target="infoRequest">i</button>
-                    </label>
-                    <div class="checkbox-group">
-                        <label for="reqPassword">
-                            <input type="checkbox" id="reqPassword" value="10" data-display="password">
-                            Request for Password
-                        </label>
-                        <label for="reqCreditCard">
-                            <input type="checkbox" id="reqCreditCard" value="10" data-display="credit card details">
-                            Request for Credit Card Details
-                        </label>
-                        <label for="reqSSN">
-                            <input type="checkbox" id="reqSSN" value="10" data-display="Social Security Number (SSN)">
-                            Request for Social Security Number (SSN)
-                        </label>
-                    </div>
-                </div>
-
-                <div class="mb-4">
-                    <label class="block text-lg font-semibold mb-2 info-label">
-                        Displayed Link Text:
-                        <button class="info-button" data-info-target="linkText">i</button>
-                    </label>
-                    <select id="linkText" class="block appearance-none w-full py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:border-indigo-500 shadow-sm">
-                        <option value="0" data-display="">Select link text...</option>
-                        <option value="10" data-display="Click here to verify">Click here to verify</option>
-                        <option value="8" data-display="Update Your Account Now">Update Your Account Now</option>
-                        <option value="5" data-display="Login to view details">Login to view details</option>
-                        <option value="0" data-display="Visit Our Official Website">Visit Our Official Website</option>
-                    </select>
-                </div>
-
-                <div class="mb-6">
-                    <label class="block text-lg font-semibold mb-2 info-label">
-                        Actual Link URL:
-                        <button class="info-button" data-info-target="actualLink">i</button>
-                    </label>
-                    <select id="actualLink" class="block appearance-none w-full py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:border-indigo-500 shadow-sm">
-                        <option value="0" data-display="">Select actual link URL...</option>
-                        <option value="20" data-display="http://bad-phishing-site.com/login">http://bad-phishing-site.com/login</option>
-                        <option value="18" data-display="https://secure-portal.verify-account.xyz/auth">https://secure-portal.verify-account.xyz/auth</option>
-                        <option value="15" data-display="http://192.168.1.1/update">http://192.168.1.1/update</option>
-                        <option value="0" data-display="https://www.legitcompany.com/support">https://www.legitcompany.com/support</option>
-                    </select>
-                </div>
-
-                <div class="mb-6">
-                    <label class="block text-lg font-semibold mb-2 info-label">
-                        Attached Document:
-                        <button class="info-button" data-info-target="attachment">i</button>
-                    </label>
-                    <select id="attachment" class="block appearance-none w-full py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:border-indigo-500 shadow-sm">
-                        <option value="0" data-display="[No Attachment]">No Attachment</option>
-                        <option value="15" data-display="Invoice.zip">Invoice.zip (Suspicious File Type)</option>
-                        <option value="12" data-display="Urgent_Security_Update.exe">Urgent_Security_Update.exe (Executable)</option>
-                        <option value="10" data-display="Bank_Statement_Q1.js">Bank_Statement_Q1.js (JavaScript File)</option>
-                        <option value="8" data-display="Shipping_Details.docm">Shipping_Details.docm (Macro-enabled Document)</option>
-                        <option value="5" data-display="Payment_Receipt.pdf">Payment_Receipt.pdf (Legitimate-looking but suspicious context)</option>
-                    </select>
-                </div>
-
-                <button id="scoreBtn">Score Email</button>
-                <button id="resetBtn" class="mt-4 !bg-gray-500 hover:!bg-gray-600">Reset</button>
+        <!-- Build Your Phish Mode Content -->
+        <div id="buildModeContent" class="build-mode-active">
+            <div id="emailBuilder" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
+                <!-- Categories will be dynamically loaded here -->
             </div>
-
-            <div id="spotModeSection" class="form-section hidden">
-                <div class="mb-4">
-                    <label for="difficulty" class="block text-lg font-semibold mb-2">Challenge Difficulty:</label>
-                    <select id="difficulty" class="block appearance-none w-full py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:border-indigo-500 shadow-sm">
-                        <option value="easy">Easy (1-2 Red Flags)</option>
-                        <option value="medium">Medium (3-4 Red Flags)</option>
-                        <option value="hard">Hard (5+ Red Flags)</option>
-                    </select>
+            <!-- Email Preview for Build Mode -->
+            <div class="mt-8">
+                <h2 class="text-2xl font-semibold text-AB2328 mb-4">Email Preview</h2>
+                <div class="email-preview-content bg-gray-700 p-6 rounded-lg shadow-inner" id="buildPhishEmailPreview">
+                    <!-- Built email will appear here -->
+                    <p class="text-D0D3D4">Select options above to build your email...</p>
                 </div>
-                <button id="newChallengeBtn">New Phishing Challenge</button>
-                <button id="checkPhishBtn" class="mt-4 hidden">Check My Answers</button>
-                 <button id="resetSpotBtn" class="mt-4 !bg-gray-500 hover:!bg-gray-600 hidden">Reset Challenge</button>
             </div>
-
-
-            <div class="inbox-preview">
-                <h2 class="text-2xl font-bold mb-4">Inbox Preview</h2>
-                <div class="flex items-center justify-end mb-4">
-                    <label for="toggleLegit" id="toggleLegitLabel" class="mr-3 text-sm text-gray-400 cursor-pointer">Show Legitimate Example</label>
-                    <input type="checkbox" id="toggleLegit" class="relative w-10 h-5 bg-gray-600 rounded-full appearance-none cursor-pointer toggle-switch">
-                </div>
-
-                <div class="email-header">
-                    <div class="email-subject preview-element" data-element="subject" id="previewSubject">[Subject]</div>
-                    <div class="email-from">From: <span class="preview-element" data-element="senderName" id="previewSenderName">[Sender Name]</span> &lt;<span class="preview-element" data-element="sender" id="previewSender">[Sender Email]</span>&gt;</div>
-                </div>
-                <div class="email-body-preview" id="previewBody">
-                    <p><span class="preview-element" data-element="greeting" id="previewGreeting">[Greeting]</span></p>
-                    <p><span class="preview-element" data-element="mainContent" id="previewMainContent">[Main Content]</span></p>
-                    <p><span class="preview-element" data-element="grammarSpelling" id="previewGrammarSpelling"></span></p> <!-- NEW: Grammar/Spelling Preview -->
-                    <p><span class="preview-element" data-element="infoRequest" id="previewInfoRequest"></span></p>
-                    <p><span class="preview-element" data-element="link" id="previewLinkContainer"></span></p>
-                    <!-- NEW: Attachment Preview -->
-                    <p><span class="preview-element" data-element="attachment" id="previewAttachment"></span></p>
-                </div>
+            <div class="flex justify-center mt-8">
+                <button id="submitPhishBtn" class="btn-primary">Submit Phish</button>
             </div>
         </div>
 
-        <div id="scoreResult" class="score-box hidden">
-            <h2 class="text-2xl font-bold mb-4">Your Score: <span id="scoreValue" class="score-value">0</span> / 100</h2>
-            <div id="scoreInterpretation" class="mb-4"></div>
-            <div id="feedback">
-                <!-- Feedback will be inserted here -->
+        <!-- Spot the Phish Mode Content -->
+        <div id="spotModeContent" class="spot-mode-hidden">
+            <div class="text-center mb-6">
+                <p class="text-xl font-semibold text-D0D3D4">Your Score:</p>
+                <p id="phishSpotScoreDisplay" class="text-D0D3D4 text-5xl font-bold">0</p>
             </div>
-             <div id="scoreBreakdown" class="mt-4 border-t pt-4 border-gray-200">
-                <h3 class="text-xl font-bold mb-2">Score Breakdown:</h3>
-                <ul>
-                    <!-- Breakdown will be inserted here -->
-                </ul>
+            <div class="email-preview-content bg-gray-700 p-6 rounded-lg shadow-inner mb-8" id="spotPhishEmailPreview">
+                <!-- Generated phishing email will appear here -->
             </div>
-            <button id="reportPhishBtn" class="hidden">Report This Phish!</button>
-             <div id="reportMessage" class="hidden mt-4 p-3 rounded-lg bg-green-700 text-white text-center">
-                Successfully reported! You've helped keep the internet safer.
-                <p class="text-sm mt-2">For real phishing attempts, report to:</p>
-                <ul class="text-xs text-left mt-2">
-                    <li>USA: <a href="https://reportphishing.gov/" target="_blank" class="text-blue-200 underline hover:text-blue-300">ReportPhishing.gov</a></li>
-                    <li>UK: Forward to <a href="mailto:report@phishing.gov.uk" class="text-blue-200 underline hover:text-blue-300">report@phishing.gov.uk</a> (NCSC)</li>
-                    <li>Canada: <a href="https://www.antifraudcentre-centreantifraude.ca/report-signalez-eng.htm" target="_blank" class="text-blue-200 underline hover:text-blue-300">Canadian Anti-Fraud Centre</a></li>
-                    <li>Australia: <a href="https://www.scamwatch.gov.au/report-a-scam" target="_blank" class="text-blue-200 underline hover:text-blue-300">Scamwatch</a></li>
-                    <li>Your company's IT security department.</li>
-                </ul>
+            <div class="flex justify-center gap-4">
+                <button id="checkPhishBtn" class="btn-primary">Check Phish</button>
+                <button id="newPhishBtn" class="btn-primary bg-gray-600 hover:bg-gray-700">New Phish</button>
             </div>
+        </div>
+
+        <!-- General Tips Button -->
+        <div class="flex justify-center mt-8">
+            <button id="generalTipsBtn" class="btn-primary bg-gray-600 hover:bg-gray-700">General Phishing Tips</button>
+        </div>
+
+        <!-- Admin Login Button -->
+        <div class="flex justify-center mt-4">
+            <button id="adminLoginBtn" class="btn-primary bg-gray-600 hover:bg-gray-700">Admin Login</button>
         </div>
     </div>
 
-    <!-- The Modal for info explanations -->
+    <!-- Info Modal (for explanations) -->
     <div id="infoModal" class="modal">
         <div class="modal-content">
-            <span class="close-button">&times;</span>
-            <h3 id="modalTitle" class="text-xl font-bold mb-3"></h3>
-            <div class="modal-scroll-content"> <!-- ADDED SCROLLABLE CONTENT WRAPPER -->
-                <p id="modalText"></p>
+            <span class="close-button" id="closeModalBtn">&times;</span>
+            <h2 class="text-3xl font-bold text-AB2328 mb-4">Explanation</h2>
+            <div id="modalText" class="text-D0D3D4 leading-relaxed">
+                <!-- Explanation content will be loaded here -->
             </div>
         </div>
     </div>
 
-    <!-- NEW: General Tips Modal -->
+    <!-- Admin Password Modal -->
+    <div id="adminPasswordModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" id="closeAdminPasswordModalBtn">&times;</span>
+            <h2 class="text-3xl font-bold text-AB2328 mb-4">Admin Login</h2>
+            <p class="text-D0D3D4 mb-4">Enter admin password:</p>
+            <input type="password" id="adminPasswordInput" class="w-full p-3 rounded-lg bg-gray-700 text-white border border-gray-600 mb-4 focus:outline-none focus:ring-2 focus:ring-AB2328">
+            <button id="submitAdminPasswordBtn" class="btn-primary w-full">Login</button>
+            <p id="adminPasswordError" class="text-AB2328 mt-2 hidden">Incorrect password.</p>
+        </div>
+    </div>
+
+    <!-- Admin Log Modal -->
+    <div id="adminLogModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" id="closeAdminLogModalBtn">&times;</span>
+            <h2 class="text-3xl font-bold text-AB2328 mb-4">User High Score Log</h2>
+            <div id="adminLogContent" class="text-D0D3D4 leading-relaxed max-h-80 overflow-y-auto mb-4">
+                <p>Loading user data...</p>
+            </div>
+            <button id="exportCsvBtn" class="btn-primary bg-gray-600 hover:bg-gray-700 w-full">Export to CSV</button>
+        </div>
+    </div>
+
+    <!-- General Tips Modal -->
     <div id="generalTipsModal" class="modal">
         <div class="modal-content">
-            <span class="close-button" id="closeGeneralTipsModal">&times;</span>
-            <h3 class="text-xl font-bold mb-3">General Phishing Prevention Tips</h3>
-            <div class="modal-scroll-content"> <!-- ADDED SCROLLABLE CONTENT WRAPPER -->
-                <div class="text-lg space-y-3">
-                    <p><strong>1. Always Verify the Sender:</strong> Don't just trust the display name. Hover over the sender's email address to see the full email. Look for misspellings or unusual domains.</p>
-                    <p><strong>2. Be Wary of Urgent or Threatening Language:</strong> Phishing emails often create a sense of urgency or fear (e.g., "Account suspended," "Immediate action required"). Legitimate organizations rarely use such high-pressure tactics.</p>
-                    <p><strong>3. Check Links Before Clicking:</strong> Hover over any links in an email to see the actual URL. If it doesn't match the company's official website, or looks suspicious, do not click it.</p>
-                    <p><strong>4. Look for Generic Greetings:</strong> "Dear Customer" or "Dear Valued User" can be a red flag. Legitimate communications usually address you by your name.</p>
-                    <p><strong>5. Inspect for Grammar and Spelling Errors:</strong> Many phishing emails, especially from less sophisticated attackers, contain noticeable typos, grammatical mistakes, or awkward phrasing. Professional communications are typically error-free.</p>
-                    <p><strong>6. Be Cautious with Attachments:</strong> Never open unexpected attachments, especially those with unusual file extensions (.zip, .exe, .js, .docm). These often contain malware.</p>
-                    <p><strong>7. Avoid Providing Sensitive Information:</strong> Legitimate companies will almost never ask for your password, credit card number, or Social Security Number via email or through an email link.</p>
-                    <p><strong>8. Use Multi-Factor Authentication (MFA):</strong> Enable MFA on all your accounts. Even if phishers get your password, MFA can prevent them from accessing your account.</p>
-                    <p><strong>9. If in Doubt, Go Directly:</strong> If an email seems suspicious, instead of clicking links, open your web browser and navigate directly to the company's official website to log in or verify information.</p>
-                    <p><strong>10. Report Suspicious Emails:</strong> If you receive a phishing email, report it to your IT department or relevant authorities to help protect others.</p>
-                </div>
+            <span class="close-button" id="closeGeneralTipsModalBtn">&times;</span>
+            <h2 class="text-3xl font-bold text-AB2328 mb-4">General Phishing Prevention Tips</h2>
+            <div id="generalTipsText" class="text-D0D3D4 leading-relaxed">
+                <ul class="list-disc list-inside space-y-3">
+                    <li><strong>Check the Sender's Email Address:</strong> Look for inconsistencies or unusual domains. Phishers often use addresses that look similar to legitimate ones but have subtle differences.</li>
+                    <li><strong>Hover Over Links (Don't Click!):</strong> Before clicking, hover your mouse over any links to see the actual URL. If it doesn't match the sender or looks suspicious, don't click.</li>
+                    <li><strong>Look for Spelling and Grammar Errors:</strong> Professional organizations rarely send emails with obvious mistakes. These are common red flags in phishing attempts.</li>
+                    <li><strong>Be Wary of Urgent or Threatening Language:</strong> Phishing emails often try to create a sense of urgency or fear to pressure you into acting quickly without thinking.</li>
+                    <li><strong>Verify Requests for Personal Information:</strong> Legitimate companies will rarely ask for sensitive information (passwords, credit card numbers, etc.) via email. If in doubt, go directly to their official website.</li>
+                    <li><strong>Don't Open Suspicious Attachments:</strong> Attachments can contain malware. Only open attachments from trusted senders and if you are expecting them.</li>
+                    <li><strong>Use Multi-Factor Authentication (MFA):</strong> MFA adds an extra layer of security to your accounts, making it harder for phishers to gain access even if they steal your password.</li>
+                    <li><strong>Keep Software Updated:</strong> Regularly update your operating system, web browser, and security software to protect against known vulnerabilities.</li>
+                    <li><strong>Report Suspicious Emails:</strong> If you receive a phishing email, report it to your IT department or email provider, and then delete it.</li>
+                    <li><strong>Trust Your Gut:</strong> If an email feels "off" or too good to be true, it probably is.</li>
+                </ul>
             </div>
         </div>
-    </div>
+    </div >
 
-
-    <script>
-        // --- DOM Elements ---
-        const senderSelect = document.getElementById('sender');
-        const senderNameSelect = document.getElementById('senderName'); 
-        const subjectSelect = document.getElementById('subject');
-        const greetingSelect = document.getElementById('greeting');
-        const mainContentSelect = document.getElementById('mainContent');
-        const grammarSpellingSelect = document.getElementById('grammarSpelling'); 
-        const reqPasswordCheckbox = document.getElementById('reqPassword');
-        const reqCreditCardCheckbox = document.getElementById('reqCreditCard');
-        const reqSSNCheckbox = document.getElementById('reqSSN');
-        const linkTextSelect = document.getElementById('linkText');
-        const actualLinkSelect = document.getElementById('actualLink');
-        const attachmentSelect = document.getElementById('attachment'); 
-        const allSelects = [senderSelect, senderNameSelect, subjectSelect, greetingSelect, mainContentSelect, grammarSpellingSelect, linkTextSelect, actualLinkSelect, attachmentSelect]; 
-        const allCheckboxes = [reqPasswordCheckbox, reqCreditCardCheckbox, reqSSNCheckbox];
-
-        const previewSubject = document.getElementById('previewSubject');
-        const previewSender = document.getElementById('previewSender');
-        const previewSenderName = document.getElementById('previewSenderName'); 
-        const previewGreeting = document.getElementById('previewGreeting');
-        const previewMainContent = document.getElementById('previewMainContent');
-        const previewGrammarSpelling = document.getElementById('previewGrammarSpelling'); 
-        const previewInfoRequest = document.getElementById('previewInfoRequest');
-        const previewLinkContainer = document.getElementById('previewLinkContainer');
-        const previewAttachment = document.getElementById('previewAttachment'); 
-        const toggleLegit = document.getElementById('toggleLegit');
-        const toggleLegitLabel = document.getElementById('toggleLegitLabel');
-
-
-        const scoreBtn = document.getElementById('scoreBtn');
-        const resetBtn = document.getElementById('resetBtn');
-        const reportPhishBtn = document.getElementById('reportPhishBtn');
-        const reportMessageDiv = document.getElementById('reportMessage');
-        const scoreResultDiv = document.getElementById('scoreResult');
-        const scoreValueSpan = document.getElementById('scoreValue');
-        const scoreInterpretationDiv = document.getElementById('scoreInterpretation');
-        const feedbackDiv = document.getElementById('feedback');
-        const scoreBreakdownDiv = document.querySelector('#scoreBreakdown ul');
-        const buildHighScoreSpan = document.getElementById('buildHighScore');
-        const spotHighScoreSpan = document.getElementById('spotHighScore');
-
-
-        const infoModal = document.getElementById('infoModal');
-        const closeModalBtn = document.querySelector('.close-button');
-        const modalTitle = document.getElementById('modalTitle');
-        const modalText = document.getElementById('modalText');
-
-        // NEW General Tips Modal elements
-        const generalTipsBtn = document.getElementById('generalTipsBtn');
-        const generalTipsModal = document.getElementById('generalTipsModal');
-        const closeGeneralTipsModalBtn = document.getElementById('closeGeneralTipsModal');
-
-
-        // Mode specific elements
-        const buildModeBtn = document.getElementById('buildModeBtn');
-        const spotModeBtn = document.getElementById('spotModeBtn');
-        const buildModeSection = document.getElementById('buildModeSection');
-        const spotModeSection = document.getElementById('spotModeSection');
-        const newChallengeBtn = document.getElementById('newChallengeBtn');
-        const checkPhishBtn = document.getElementById('checkPhishBtn');
-        const resetSpotBtn = document.getElementById('resetSpotBtn');
-        const difficultySelect = document.getElementById('difficulty');
-
-        let currentMode = 'build'; // 'build' or 'spot'
-        let generatedPhishEmail = {}; // Stores the current randomly generated email for spot mode
-        let userClickedElements = new Set(); // Stores data-element of clicked preview parts
-
-        // --- Data Definitions ---
-        const optionsData = {
+    <script type="module">
+        // Data structure for phishing email categories and options
+        const phishingCategories = {
             sender: {
-                'category': 'Sender Email', // Renamed for clarity
-                'elementId': 'previewSender', 
-                'dataElementKey': 'sender',   
-                'options': {
-                    '20': { message: 'support@amaz0n.com (Typo/Homoglyph)', icon: '🚨', explanation: 'Phishers often use slight misspellings (homoglyphs) of legitimate company names or unusual Top-Level Domains (like .net, .info, .xyz for a bank) to trick you into thinking the email is real. Always double-check the domain name!', isPhishy: true },
-                    '18': { message: 'security-update@apple-verify.net (Impersonation + Suspicious TLD)', icon: '🎣', explanation: 'Impersonating well-known brands (like Apple, Microsoft, PayPal) is a common tactic. If the domain doesn\'t exactly match the official company website (e.g., "apple-security.net" instead of "apple.com"), it\'s a red flag.', isPhishy: true },
-                    '15': { message: 'noreply@yourbank-online.info (Impersonation + Generic Subdomain)', icon: '🕵️', explanation: 'Look closely at the full email address. Subdomains like "yourbank-online.info" or "secure-login.co" can be used to hide the true malicious domain. The last part before the TLD should be the actual company name.', isPhishy: true },
-                    '10': { message: 'admin@company-it.org (Generic + Suspicious TLD)', icon: '⚠️', explanation: 'Emails from "admin," "support," or "noreply" are common, but if they come from a strange domain, it\'s suspicious. Legitimate companies will use their official domain (e.g., "support@company.com").', isPhishy: true },
-                    '0': { message: 'no-reply@legitcompany.com (Legitimate-looking)', icon: '✅', explanation: 'A legitimate sender will use the official domain of the company they represent (e.g., "noreply@microsoft.com").', isPhishy: false }
-                }
-            },
-            senderName: { // NEW SENDER NAME
-                'category': 'Sender Display Name',
-                'elementId': 'previewSenderName',
-                'dataElementKey': 'senderName',
-                'options': {
-                    '15': { message: 'Microsoft Support', icon: '📛', explanation: 'Phishers often use a legitimate-looking display name (e.g., "Microsoft Support", "Your Bank") even if the email address itself is malicious. Always check the full email address, not just the display name.', isPhishy: true },
-                    '12': { message: 'Your Bank Security', icon: '🎭', explanation: 'Generic but authoritative-sounding display names like "Your Bank Security" or "IT Department" are common. They aim to establish trust without providing specific details.', isPhishy: true },
-                    '10': { message: 'Administrator', icon: '👤', explanation: 'A highly generic display name like "Administrator" or "Support" is often a red flag, especially if not paired with a legitimate company email address.', isPhishy: true },
-                    '0': { message: 'John Doe', icon: '✅', explanation: 'Legitimate emails often use a personalized name or the exact company name as the display name, matching the email address.', isPhishy: false }
-                }
+                title: "Sender",
+                options: [
+                    { value: "legit-company", text: "Legitimate Company (e.g., Google, Microsoft)", score: 10, message: "Looks Official", explanation: "A legitimate-looking sender makes the email seem trustworthy at first glance.", emailContent: "Google Support <support@google.com>" },
+                    { value: "generic-support", text: "Generic Support (e.g., 'Support Team', 'Admin')", score: 20, message: "Vague Sender", explanation: "Generic senders are common in phishing as they don't require specific impersonation.", emailContent: "Admin <no-reply@service.net>" },
+                    { value: "typo-company", text: "Company with Typo (e.g., 'Googel', 'Micros0ft')", score: 30, message: "Subtle Typo", explanation: "Typos in sender names are a classic phishing tactic to trick hurried recipients.", emailContent: "Micros0ft Security <security@micros0ft.com>" },
+                    { value: "random-email", text: "Random Email Address (e.g., 'xyz123@free-mail.com')", score: 5, message: "Obvious Fake", explanation: "An obviously fake sender reduces credibility, but some might still fall for it.", emailContent: "randomuser123@free-mail.com" }
+                ]
             },
             subject: {
-                'category': 'Subject',
-                'elementId': 'previewSubject',
-                'dataElementKey': 'subject',
-                'options': {
-                    '20': { message: 'URGENT: Your Account Has Been Suspended!', icon: '⏰', explanation: 'Phishers want you to act without thinking. Subjects implying immediate account suspension, security breaches, or dire consequences if you don\'t respond "now" are designed to create panic and bypass critical thinking.', isPhishy: true },
-                    '18': { message: 'Security Alert: Unusual Activity Detected!', icon: '❗', explanation: 'Warnings about "unusual activity" or "unauthorized logins" are classic phishing hooks. While legitimate companies send these, phishers use them to scare you into clicking a malicious link to "resolve" the issue.', isPhishy: true },
-                    '15': { message: 'Action Required: Verify Your Information', icon: '⚡', explanation: 'Phrases like "Action Required" or "Verify Your Information" without specific context are designed to make you feel like you *must* do something. Legitimate requests usually have more specific details.', isPhishy: true },
-                    '10': { message: 'Invoice #123456 - Payment Due', icon: '💸', explanation: 'Threats related to overdue payments, invoices, or unexpected charges can make people click quickly to avoid financial penalties. Always verify such claims directly with the company, not via the email\'s link.', isPhishy: true },
-                    '0': { message: 'Your Monthly Statement Is Ready', icon: '✅', explanation: 'Legitimate emails often have clear, concise subjects that do not create undue pressure or fear.', isPhishy: false }
-                }
+                title: "Subject Line",
+                options: [
+                    { value: "invoice-alert", text: "Invoice/Payment Alert (e.g., 'Your Invoice Is Ready')", score: 25, message: "Financial Urgency", explanation: "Subjects related to money often trigger immediate attention and fear of loss.", emailContent: "Action Required: Your Invoice #12345 is Overdue" },
+                    { value: "security-alert", text: "Security Alert (e.g., 'Unusual Sign-in Activity')", score: 30, message: "Security Scare", explanation: "Security alerts create panic, leading users to click links to 'secure' their accounts.", emailContent: "Urgent Security Alert: Unusual Sign-in Detected" },
+                    { value: "package-delivery", text: "Package Delivery (e.g., 'Your Package is Delayed')", score: 20, message: "Delivery Notification", explanation: "Common and relatable, exploiting anticipation for deliveries.", emailContent: "Delivery Exception: Your Package Has Been Delayed" },
+                    { value: "account-suspension", text: "Account Suspension (e.g., 'Your Account Will Be Suspended')", score: 35, message: "Threat of Loss", explanation: "Threatening account suspension pressures users to act without verifying.", emailContent: "Important: Your Account Will Be Suspended Soon" },
+                    { value: "prize-win", text: "Prize/Lottery Win (e.g., 'You've Won a Free Gift!')", score: 15, message: "Too Good to Be True", explanation: "Appeals to greed, but often easily identifiable as scams.", emailContent: "Congratulations! You've Won a New iPhone!" }
+                ]
             },
-            greeting: {
-                'category': 'Greeting',
-                'elementId': 'previewGreeting',
-                'dataElementKey': 'greeting',
-                'options': {
-                    '10': { message: 'Dear Customer,', icon: '👥', explanation: 'Most legitimate services will address you by your name, or a specific account number. Generic greetings like "Dear Customer" or "Dear User" are common because phishers don\'t know your name and send millions of emails at once.', isPhishy: true },
-                    '8': { message: 'Dear Valued User,', icon: '👥', explanation: 'Similar to "Dear Customer," these greetings lack personalization. While not always a red flag, it\'s a common characteristic of bulk phishing attempts.', isPhishy: true },
-                    '5': { message: 'Hello,', icon: '👥', explanation: 'A very informal greeting like "Hello," might be a sign of a less sophisticated phishing attempt or one sent broadly.', isPhishy: true },
-                    '0': { message: 'Dear [Your Name],', icon: '✅', explanation: 'Legitimate emails from services you use frequently will usually address you by your name or username.', isPhishy: false }
-                }
+            body: {
+                title: "Email Body Content",
+                options: [
+                    { value: "generic-greeting", text: "Generic Greeting ('Dear Customer')", score: 15, message: "Impersonal Greeting", explanation: "Legitimate emails usually address you by name, lack of personalization is a red flag.", emailContent: "Dear Customer, we are writing to inform you about an important update regarding your account." },
+                    { value: "urgent-action", text: "Urgent Call to Action ('Click Now to Avoid Closure')", score: 30, message: "High Pressure", explanation: "Creates a sense of urgency, bypassing critical thinking.", emailContent: "We detected unusual activity on your account. To prevent unauthorized access, please verify your details immediately. Failure to act within 24 hours will result in account suspension." },
+                    { value: "request-info", text: "Request for Personal Info (e.g., 'Verify Your Password')", score: 40, message: "Info Harvesting", explanation: "Directly asks for sensitive data, a clear sign of phishing.", emailContent: "Please verify your account information (username and password) by clicking the link below. This is required for security purposes." },
+                    { value: "poor-grammar", text: "Poor Grammar/Spelling", score: 20, message: "Unprofessional Language", explanation: "Errors indicate a lack of professionalism, common in non-native English speaking scammers.", emailContent: "We have detected a problem with you're account. Please click hear to fix it immediate. Our system will be block your access if you not respond." },
+                    { value: "vague-details", text: "Vague Details (e.g., 'a recent transaction')", score: 10, message: "Lack of Specificity", explanation: "Avoids specific details that could be easily disproven.", emailContent: "There was a recent transaction on your account that requires your attention. Please log in to review it at your earliest convenience." }
+                ]
             },
-            mainContent: {
-                'category': 'Main Content',
-                'elementId': 'previewMainContent',
-                'dataElementKey': 'mainContent',
-                'options': {
-                    '20': { message: 'Your account has been suspended due to suspicious activity. Click immediately to restore access.', icon: '🚫', explanation: 'The core message creates high pressure. It tells you your account is in danger and only immediate action (clicking their link) can save it. This bypasses your natural caution.', isPhishy: true },
-                    '18': { message: 'We\'ve detected unauthorized login attempts. Verify your details now to prevent further issues.', icon: '🚨', explanation: 'Phishers often claim suspicious activity to create alarm. The goal is to make you click a link to "verify" or "secure" your account, which leads to a fake login page.', isPhishy: true },
-                    '15': { message: 'Your payment for invoice #XYZ is overdue. Click to review and pay to avoid service interruption.', icon: '💰', explanation: 'Messages about overdue payments or unexpected bills prey on your financial concerns. They hope you\'ll click to resolve the "issue" before realizing it\'s fake.', isPhishy: true },
-                    '10': { message: 'Congratulations! You\'ve won a cash prize! Claim it by providing your banking information.', icon: '🏆', explanation: 'If it sounds too good to be true, it probably is. Phishing emails sometimes promise large sums of money or prizes, asking for personal details (often for "fees" or "verification") to release the non-existent winnings.', isPhishy: true },
-                    '0': { message: 'Important updates about our service and new features.', icon: '✅', explanation: 'Legitimate email content provides clear, factual information without undue pressure or demands for immediate action.', isPhishy: false }
-                }
-            },
-            grammarSpelling: { 
-                'category': 'Grammar & Spelling',
-                'elementId': 'previewGrammarSpelling',
-                'dataElementKey': 'grammarSpelling',
-                'options': {
-                    '15': { message: 'Obvious Errors: Many misspellings, poor grammar, awkward sentences.', icon: '🚨', explanation: 'Numerous, blatant errors in grammar, spelling, or punctuation are a strong indicator of a phishing email. Professional organizations meticulously proofread their communications.', isPhishy: true },
-                    '10': { message: 'Minor Errors: A few typos or awkward phrases.', icon: '⚠️', explanation: 'Even a few minor errors can be a red flag. While anyone can make a typo, consistently poor writing quality suggests a less professional or even malicious sender.', isPhishy: true },
-                    '0': { message: 'No Errors: Perfect grammar and spelling.', icon: '✅', explanation: 'Legitimate communications from reputable organizations typically have perfect or near-perfect grammar and spelling.', isPhishy: false }
-                }
-            },
-            infoRequest: {
-                'category': 'Information Request',
-                'elementId': 'previewInfoRequest', 
-                'dataElementKey': 'infoRequest', 
-                'options': {
-                    'reqPassword': { message: 'Request for Password', icon: '🔑', explanation: 'Legitimate companies will NEVER ask for your password via email. If an email asks for your password, it is almost certainly a phishing attempt.', isPhishy: true },
-                    'reqCreditCard': { message: 'Request for Credit Card Details', icon: '💳', explanation: 'Never provide credit card details via a link in an unexpected email. Companies process payments on secure websites, not directly through email links.', isPhishy: true },
-                    'reqSSN': { message: 'Request for Social Security Number (SSN)', icon: '👤', explanation: 'Your Social Security Number is extremely sensitive. No legitimate organization will ask for your SSN via email or an email link.', isPhishy: true }
-                }
-            },
-            linkText: {
-                'category': 'Displayed Link Text',
-                'elementId': 'previewLinkContainer', 
-                'dataElementKey': 'link', 
-                'options': {
-                    '10': { message: 'Click here to verify', icon: '🔗', explanation: 'Generic calls to action like "Click here" or "Login" are red flags. Legitimate links usually describe what you\'re clicking on more specifically.', isPhishy: true },
-                    '8': { message: 'Update Your Account Now', icon: '🔄', explanation: 'Prompts to "Update Your Account Now" without a clear context in the email body are often phishing. Always navigate to the official website directly instead.', isPhishy: true },
-                    '5': { message: 'Login to view details', icon: '🔐', explanation: 'Phishers want you to enter credentials. Text like "Login to view details" tries to get you to their fake login page.', isPhishy: true },
-                    '0': { message: 'Visit Our Official Website', icon: '✅', explanation: 'A safe link text will usually be descriptive and clearly indicate where it leads, often matching the official company name.', isPhishy: false }
-                }
-            },
-            actualLink: {
-                'category': 'Actual Link URL',
-                'elementId': 'previewLinkContainer', 
-                'dataElementKey': 'link', 
-                'options': {
-                    '20': { message: 'http://bad-phishing-site.com/login', icon: '⛔', explanation: 'The absolute biggest red flag! The actual URL is the website you\'ll be sent to. If it doesn\'t match the company\'s official website exactly, or contains strange characters, it\'s phishing. IP addresses are almost always suspicious.', isPhishy: true },
-                    '18': { message: 'https://secure-portal.verify-account.xyz/auth', icon: ' ', explanation: 'This URL tries to look like a legitimate site but isn\'t. Look for extra hyphens, numbers, or unusual top-level domains (e.g., .xyz, .biz) that don\'t belong to the real company.', isPhishy: true },
-                    '15': { message: 'http://192.168.1.1/update', icon: '🔢', explanation: 'Legitimate websites use domain names (like google.com), not raw IP addresses (like 192.168.1.1). An IP address as a link is a huge red flag.', isPhishy: true },
-                    '0': { message: 'https://www.legitcompany.com/support', icon: '✅', explanation: 'A safe link will show the legitimate company\'s domain name (e.g., "https://www.microsoft.com/security").', isPhishy: false }
-                }
-            },
-            attachment: {
-                'category': 'Attached Document',
-                'elementId': 'previewAttachment',
-                'dataElementKey': 'attachment',
-                'options': {
-                    '15': { message: 'Invoice.zip', icon: '📎', explanation: 'Compressed files (.zip, .rar) are often used to hide malicious executables. Be extremely wary of unexpected zip attachments, especially from unknown senders.', isPhishy: true },
-                    '12': { message: 'Urgent_Security_Update.exe', icon: '⚠️', explanation: 'Executable files (.exe, .msi, .bat) should NEVER be opened from an email. They can immediately infect your system. Legitimate updates come through official software channels.', isPhishy: true },
-                    '10': { message: 'Bank_Statement_Q1.js', icon: '📜', explanation: 'JavaScript files (.js) are often used in phishing to execute malicious scripts directly on your computer. Never open a .js file from an email unless you are absolutely certain of its source and purpose.', isPhishy: true },
-                    '8': { message: 'Shipping_Details.docm', icon: '📄', explanation: 'Macro-enabled documents (.docm, .xlsm, .pptm) can contain malicious code that runs when opened. Microsoft has increasingly made it harder to enable macros, but phishers still use this trick. Be cautious!', isPhishy: true },
-                    '5': { message: 'Payment_Receipt.pdf', icon: '🧾', explanation: 'While PDF files are common and generally safe, an unexpected PDF that matches a phishing theme (like an "invoice" or "payment notice" you didn\'t expect) can be a red flag. Always verify the sender and context.', isPhishy: true },
-                    '0': { message: 'No Attachment', icon: '📁', explanation: 'A legitimate email that requires no attachment.', isPhishy: false }
-                }
+            link: {
+                title: "Link/Call to Action",
+                options: [
+                    { value: "shortened-url", text: "Shortened URL (e.g., bit.ly/abc)", score: 25, message: "Hidden Destination", explanation: "Masks the true destination, preventing users from seeing a malicious URL.", emailContent: "bit.ly/secure-login" },
+                    { value: "typo-domain", text: "Typo in Domain (e.g., 'gooogle.com' instead of 'google.com')", score: 30, message: "Lookalike Domain", explanation: "Visually similar to legitimate domains, easily missed.", emailContent: "https://www.gooogle.com/signin" },
+                    { value: "ip-address", text: "IP Address Link (e.g., http://192.168.1.1)", score: 20, message: "Direct IP Link", explanation: "Unusual for legitimate sites, often used by attackers.", emailContent: "http://192.168.1.1/login" },
+                    { value: "embedded-button", text: "Button with Malicious Link (e.g., 'Verify Account' button)", score: 35, message: "Deceptive Button", explanation: "Appears harmless but leads to a phishing site.", emailContent: `<button style="background-color:#AB2328; color:white; padding:10px 20px; border-radius:5px; border:none; cursor:pointer;">Verify Account</button>` },
+                    { value: "no-link", text: "No Link (Just Text)", score: 0, message: "No Direct Threat", explanation: "No link means no direct phishing vector, but could be a precursor.", emailContent: "No direct link provided in this email." }
+                ]
             }
         };
 
-        const legitimateEmailOptions = {
-            sender: { value: "0", display: "info@yourtrustedcompany.com" },
-            senderName: { value: "0", display: "Your Trusted Company" }, 
-            subject: { value: "0", display: "Your Monthly Newsletter - June" },
-            greeting: { value: "0", display: "Dear [Your Name]," },
-            mainContent: { value: "0", display: "Here are important updates about our service and new features. You can find more details by visiting our official website." },
-            grammarSpelling: { value: "0", display: "No Errors" }, 
-            reqPassword: false,
-            reqCreditCard: false,
-            reqSSN: false,
-            linkText: { value: "0", display: "Visit Our Official Website" },
-            actualLink: { value: "0", display: "https://www.yourtrustedcompany.com/updates" },
-            attachment: { value: "0", display: "No Attachment" } 
-        };
+        // State variables
+        let selectedOptions = {};
+        let currentPhishScore = 0;
+        let currentMode = 'build'; // 'build' or 'spot'
+        let spotPhishScore = 0;
+        let identifiedPhishElements = new Set();
+        let currentSpotPhishData = null; // Stores the data for the current 'Spot the Phish' email
 
-        // --- Utility Functions ---
+        // DOM Elements
+        const emailBuilder = document.getElementById('emailBuilder');
+        const submitPhishBtn = document.getElementById('submitPhishBtn');
+        const infoModal = document.getElementById('infoModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const modalText = document.getElementById('modalText');
+        const highScoreDisplay = document.getElementById('highScoreDisplay');
+        const buildModeBtn = document.getElementById('buildModeBtn');
+        const spotModeBtn = document.getElementById('spotModeBtn');
+        const buildModeContent = document.getElementById('buildModeContent');
+        const spotModeContent = document.getElementById('spotModeContent');
+        const spotPhishEmailPreview = document.getElementById('spotPhishEmailPreview');
+        const buildPhishEmailPreview = document.getElementById('buildPhishEmailPreview');
+        const phishSpotScoreDisplay = document.getElementById('phishSpotScoreDisplay');
+        const checkPhishBtn = document.getElementById('checkPhishBtn');
+        const newPhishBtn = document.getElementById('newPhishBtn');
+        const generalTipsBtn = document.getElementById('generalTipsBtn');
+        const generalTipsModal = document.getElementById('generalTipsModal');
+        const closeGeneralTipsModalBtn = document.getElementById('closeGeneralTipsModalBtn');
+        const gameInstructions = document.getElementById('gameInstructions');
+        const adminLoginBtn = document.getElementById('adminLoginBtn'); // New Admin button
+        const adminPasswordModal = document.getElementById('adminPasswordModal'); // New Admin Password Modal
+        const closeAdminPasswordModalBtn = document.getElementById('closeAdminPasswordModalBtn');
+        const adminPasswordInput = document.getElementById('adminPasswordInput');
+        const submitAdminPasswordBtn = document.getElementById('submitAdminPasswordBtn');
+        const adminPasswordError = document.getElementById('adminPasswordError');
+        const adminLogModal = document.getElementById('adminLogModal'); // New Admin Log Modal
+        const closeAdminLogModalBtn = document.getElementById('closeAdminLogModalBtn');
+        const adminLogContent = document.getElementById('adminLogContent');
+        const exportCsvBtn = document.getElementById('exportCsvBtn'); // New Export CSV button
 
-        /**
-         * Gets the display text for a selected option from its data-display attribute.
-         * @param {HTMLElement} selectElement - The select element.
-         * @returns {string} The data-display value of the selected option, or an empty string.
-         */
-        function getSelectedOptionDisplay(selectElement) {
-            const selectedOption = selectElement.options[selectElement.selectedIndex];
-            return selectedOption ? selectedOption.getAttribute('data-display') || '' : '';
-        }
+        // Instruction content
+        const buildModeInstructions = `
+            <p class="text-D0D3D4 mb-4"><strong>Instructions for Build Your Phish:</strong></p>
+            <ul class="list-disc list-inside text-D0D3D4 space-y-2">
+                <li>Select options from each category (Sender, Subject, Body, Link) to construct your phishing email.</li>
+                <li>Your goal is to create the most convincing and effective phishing email.</li>
+                <li>The higher the 'Phish Score', the more deceptive your email is.</li>
+                <li>Click "Submit Phish" to see your score and an explanation of why certain elements are effective.</li>
+            </ul>
+        `;
 
-        /**
-         * Gets the actual value for a selected option.
-         * @param {HTMLElement} selectElement - The select element.
-         * @returns {string} The value of the selectedOption, or '0'.
-         */
-        function getSelectedOptionValue(selectElement) {
-            return selectElement.value;
-        }
+        const spotModeInstructions = `
+            <p class="text-D0D3D4 mb-4"><strong>Instructions for Spot the Phish:</strong></p>
+            <ul class="list-disc list-inside text-D0D3D4 space-y-2">
+                <li>An email will be generated for you. Your task is to identify all the phishing indicators.</li>
+                <li>Click on any word, phrase, or element within the email preview that you believe is a phishing attempt.</li>
+                <li>You get points for correctly identifying phishing elements. Be careful, incorrect guesses might deduct points!</li>
+                <li>Click "Check Phish" when you think you've found all the indicators.</li>
+                <li>Click "New Phish" to generate a new email and start over.</li>
+            </ul>
+        `;
 
-        /**
-         * Loads high score from local storage.
-         * @param {string} mode - 'build' or 'spot'.
-         * @returns {number} The high score.
-         */
-        function getHighScore(mode) {
-            return parseInt(localStorage.getItem(`phishingGameHighScore_${mode}`) || '0');
-        }
-
-        /**
-         * Saves high score to local storage if current score is higher.
-         * @param {number} score - The current score.
-         * @param {string} mode - 'build' or 'spot'.
-         */
-        function setHighScore(score, mode) {
-            const currentHighScore = getHighScore(mode);
-            if (score > currentHighScore) {
-                localStorage.setItem(`phishingGameHighScore_${mode}`, score);
-                updateHighScoreDisplay();
-            }
-        }
-
-        /**
-         * Updates the high score display in the UI.
-         */
+        // Function to update high score display
         function updateHighScoreDisplay() {
-            buildHighScoreSpan.textContent = getHighScore('build');
-            spotHighScoreSpan.textContent = getHighScore('spot');
-        }
-
-        // --- Preview Rendering Logic ---
-
-        /**
-         * Updates the content and visual cues of the email preview window based on current selections.
-         * @param {object} emailData - The data to populate the preview with (either user selections or generated phish).
-         * @param {boolean} isLegitimateExample - If true, shows the predefined legitimate email.
-         * @param {boolean} isSpotMode - If true, enables click listeners for spot mode.
-         */
-        function updateEmailPreview(emailData, isLegitimateExample = false, isSpotMode = false) {
-            // Clear all previous red flags and event listeners
-            document.querySelectorAll('.preview-element').forEach(el => {
-                el.classList.remove('red-flag', 'wrong-flag');
-                el.removeEventListener('click', handlePreviewElementClick); // Remove old listeners
-                if (isSpotMode) {
-                    el.addEventListener('click', handlePreviewElementClick); // Add new listeners for spot mode
-                    el.style.cursor = 'pointer';
-                } else {
-                    el.style.cursor = 'default';
-                }
-            });
-             // Also remove specific link hover
-            const linkA = previewLinkContainer.querySelector('a');
-            if (linkA) {
-                linkA.title = ''; // Remove title attribute
-            }
-
-            // Populate preview
-            previewSubject.textContent = emailData.subject.display;
-            previewSenderName.textContent = emailData.senderName.display; 
-            previewSender.textContent = emailData.sender.display;
-            previewGreeting.textContent = emailData.greeting.display;
-            previewMainContent.textContent = emailData.mainContent.display;
-
-            // Handle grammar/spelling preview
-            if (emailData.grammarSpelling.display && emailData.grammarSpelling.value !== '0') {
-                const grammarIcon = optionsData.grammarSpelling.options[emailData.grammarSpelling.value].icon;
-                previewGrammarSpelling.textContent = `(${grammarIcon} Grammar/Spelling: ${optionsData.grammarSpelling.options[emailData.grammarSpelling.value].message})`;
-            } else {
-                previewGrammarSpelling.textContent = '';
-            }
-
-            // Handle information request text - Use .message from optionsData
-            let infoRequestsText = [];
-            if (emailData.reqPassword) infoRequestsText.push(optionsData.infoRequest.options.reqPassword.message);
-            if (emailData.reqCreditCard) infoRequestsText.push(optionsData.infoRequest.options.reqCreditCard.message);
-            if (emailData.reqSSN) infoRequestsText.push(optionsData.infoRequest.options.reqSSN.message);
-
-            if (infoRequestsText.length > 0) {
-                previewInfoRequest.textContent = `We require you to provide your ${infoRequestsText.join(', ')}.`;
-            } else {
-                previewInfoRequest.textContent = '';
-            }
-
-            // Handle link text and actual link with hover effect
-            if (emailData.linkText.display && emailData.actualLink.display) {
-                previewLinkContainer.innerHTML = '';
-                const linkElement = document.createElement('a');
-                linkElement.href = '#';
-                linkElement.textContent = emailData.linkText.display;
-                linkElement.title = `Go to: ${emailData.actualLink.display}`; // Title for hover
-                linkElement.style.pointerEvents = 'none'; // Make it not actually clickable for safety
-                linkElement.style.cursor = 'default';
-                linkElement.style.textDecoration = 'underline'; // Ensure underline for links
-                linkElement.style.color = '#9370db'; // Matching link color
-                linkElement.className = 'hover:text-b08ee6'; // Tailwind hover class
-
-                previewLinkContainer.appendChild(linkElement);
-            } else if (emailData.linkText.display) {
-                 previewLinkContainer.innerHTML = `<a href="#" title="No actual link provided">${emailData.linkText.display}</a><br><small style="color: #909090;">(No actual link provided)</small>`;
-            } else if (emailData.actualLink.display) {
-                 previewLinkContainer.innerHTML = `Please click here: <a href="#" title="Go to: ${emailData.actualLink.display}">${emailData.actualLink.display}</a>`;
-            } else {
-                previewLinkContainer.innerHTML = '';
-            }
-
-            // Handle attachment preview
-            if (emailData.attachment.display && emailData.attachment.display !== 'No Attachment') {
-                const attachmentIcon = optionsData.attachment.options[emailData.attachment.value].icon;
-                previewAttachment.innerHTML = `Attachment: ${attachmentIcon} ${emailData.attachment.display}`;
-            } else {
-                previewAttachment.textContent = '';
-            }
-            
-            // Apply red flags for "Build Your Phish" mode or initial state
-            if (!isLegitimateExample && !isSpotMode) {
-                // For build mode, apply red flags if the selected option itself is phishy
-                if (optionsData.sender.options[emailData.sender.value]?.isPhishy) previewSender.classList.add('red-flag');
-                if (optionsData.senderName.options[emailData.senderName.value]?.isPhishy) previewSenderName.classList.add('red-flag'); 
-                if (optionsData.subject.options[emailData.subject.value]?.isPhishy) previewSubject.classList.add('red-flag');
-                if (optionsData.greeting.options[emailData.greeting.value]?.isPhishy) previewGreeting.classList.add('red-flag');
-                if (optionsData.mainContent.options[emailData.mainContent.value]?.isPhishy) previewMainContent.classList.add('red-flag');
-                if (optionsData.grammarSpelling.options[emailData.grammarSpelling.value]?.isPhishy) previewGrammarSpelling.classList.add('red-flag'); 
-                if (emailData.reqPassword || emailData.reqCreditCard || emailData.reqSSN) previewInfoRequest.classList.add('red-flag');
-                if (optionsData.actualLink.options[emailData.actualLink.value]?.isPhishy) previewLinkContainer.classList.add('red-flag');
-                if (optionsData.attachment.options[emailData.attachment.value]?.isPhishy) previewAttachment.classList.add('red-flag'); 
+            highScoreDisplay.textContent = window.highScore; // Use window.highScore
+            // Also update in Firestore if Firebase is ready
+            if (window.db && window.currentUserId) {
+                window.updateHighScoreInFirestore(currentMode); // Pass currentMode
             }
         }
 
-        // --- Build Mode Logic ---
-
-        /**
-         * Gets the current user selections from the form inputs.
-         * @returns {object} An object representing the user's current email.
-         */
-        function getCurrentUserEmailSelections() {
-            return {
-                sender: { value: senderSelect.value, display: getSelectedOptionDisplay(senderSelect) },
-                senderName: { value: senderNameSelect.value, display: getSelectedOptionDisplay(senderNameSelect) }, 
-                subject: { value: subjectSelect.value, display: getSelectedOptionDisplay(subjectSelect) },
-                greeting: { value: greetingSelect.value, display: getSelectedOptionDisplay(greetingSelect) },
-                mainContent: { value: mainContentSelect.value, display: getSelectedOptionDisplay(mainContentSelect) },
-                grammarSpelling: { value: grammarSpellingSelect.value, display: getSelectedOptionDisplay(grammarSpellingSelect) }, 
-                reqPassword: reqPasswordCheckbox.checked,
-                reqCreditCard: reqCreditCardCheckbox.checked,
-                reqSSN: reqSSNCheckbox.checked,
-                linkText: { value: linkTextSelect.value, display: getSelectedOptionDisplay(linkTextSelect) },
-                actualLink: { value: actualLinkSelect.value, display: getSelectedOptionDisplay(actualLinkSelect) },
-                attachment: { value: attachmentSelect.value, display: getSelectedOptionDisplay(attachmentSelect) } 
-            };
-        }
-
-        /**
-         * Calculates the phishing score for the Build Mode.
-         * @returns {object} Score, feedback, and breakdown.
-         */
-        function scoreBuildEmail() {
-            let totalScore = 0;
-            const feedback = [];
-            const breakdown = {};
-            const emailData = getCurrentUserEmailSelections();
-
-            // Helper to add score and feedback from select elements
-            function addSelectScoreAndFeedback(emailPart, categoryKey) {
-                const value = emailData[emailPart].value;
-                const category = optionsData[categoryKey].category;
-                let score = 0;
-                if (value !== '0') {
-                    score = parseInt(value);
-                    totalScore += score;
-                    // Check if the selected option itself is phishy
-                    if (optionsData[categoryKey].options[value]?.isPhishy) {
-                         feedback.push(optionsData[categoryKey].options[value]);
-                    }
-                }
-                breakdown[category] = (breakdown[category] || 0) + score;
+        // Function to render categories and options for Build Mode
+        function renderEmailBuilder() {
+            emailBuilder.innerHTML = ''; // Clear previous content
+            for (const categoryKey in phishingCategories) {
+                const category = phishingCategories[categoryKey];
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'category-selection bg-gray-700 p-6 rounded-lg shadow-md border border-gray-600'; /* Adjusted grey */
+                categoryDiv.innerHTML = `
+                    <h3 class="text-2xl font-semibold text-AB2328 mb-4">${category.title}</h3>
+                    <div class="email-part-options">
+                        ${category.options.map(option => `
+                            <button class="email-part-option bg-gray-600 hover:bg-gray-500 text-left p-4 rounded-lg transition duration-200 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-AB2328"
+                                data-category="${categoryKey}" data-value="${option.value}" data-score="${option.score}">
+                                ${option.text}
+                            </button>
+                        `).join('')}
+                    </div>
+                `;
+                emailBuilder.appendChild(categoryDiv);
             }
 
-            addSelectScoreAndFeedback('sender', 'sender');
-            addSelectScoreAndFeedback('senderName', 'senderName'); 
-            addSelectScoreAndFeedback('subject', 'subject');
-            addSelectScoreAndFeedback('greeting', 'greeting');
-            addSelectScoreAndFeedback('mainContent', 'mainContent');
-            addSelectScoreAndFeedback('grammarSpelling', 'grammarSpelling'); 
-            addSelectScoreAndFeedback('linkText', 'linkText');
-            addSelectScoreAndFeedback('actualLink', 'actualLink');
-            addSelectScoreAndFeedback('attachment', 'attachment'); 
+            // Add event listeners for option selection
+            document.querySelectorAll('.email-part-option').forEach(button => {
+                button.addEventListener('click', (event) => {
+                    const category = event.target.dataset.category;
+                    const value = event.target.dataset.value;
 
-            // Add score and feedback for information requests (checkboxes)
-            let infoRequestScore = 0;
-            if (emailData.reqPassword) {
-                const val = parseInt(reqPasswordCheckbox.value);
-                totalScore += val;
-                infoRequestScore += val;
-                feedback.push(optionsData.infoRequest.options.reqPassword);
-            }
-            if (emailData.reqCreditCard) {
-                const val = parseInt(reqCreditCardCheckbox.value);
-                totalScore += val;
-                infoRequestScore += val;
-                feedback.push(optionsData.infoRequest.options.reqCreditCard);
-            }
-            if (emailData.reqSSN) {
-                const val = parseInt(reqSSNCheckbox.value);
-                totalScore += val;
-                infoRequestScore += val;
-                feedback.push(optionsData.infoRequest.options.reqSSN);
-            }
-            breakdown[optionsData.infoRequest.category] = (breakdown[optionsData.infoRequest.category] || 0) + infoRequestScore;
-            
-            totalScore = Math.min(totalScore, 100);
-            setHighScore(totalScore, 'build'); // Save high score for build mode
-
-            return { score: totalScore, feedback, breakdown };
-        }
-
-        // --- Spot Mode Logic ---
-
-        /**
-         * Randomly selects an option value from a given category.
-         * @param {string} categoryKey - The key for the category in optionsData.
-         * @param {boolean} forcePhishy - True to force a phishy option, false to force non-phishy, undefined for random.
-         * @param {string} difficulty - Current difficulty ('easy', 'medium', 'hard').
-         * @returns {string} The selected option value (e.g., '20', '0').
-         */
-        function getRandomOptionValue(categoryKey, forcePhishy, difficulty) {
-            const availableValues = Object.keys(optionsData[categoryKey].options);
-            const phishyValues = availableValues.filter(val => optionsData[categoryKey].options[val].isPhishy);
-            const nonPhishyValues = availableValues.filter(val => !optionsData[categoryKey].options[val].isPhishy);
-
-            if (forcePhishy && phishyValues.length > 0) {
-                if (difficulty === 'hard') {
-                    // For hard difficulty, try to pick less obvious (lower score) phishy options first
-                    // Example: prefer 10 or 15 over 18 or 20 for more subtle phishing
-                    const subtlePhishyValues = phishyValues.filter(val => parseInt(val) <= 15);
-                    if (subtlePhishyValues.length > 0) {
-                        return subtlePhishyValues[Math.floor(Math.random() * subtlePhishyValues.length)];
-                    }
-                }
-                // Fallback to any phishy value if no subtle ones, or for easy/medium
-                return phishyValues[Math.floor(Math.random() * phishyValues.length)];
-            } else if (nonPhishyValues.length > 0) {
-                return nonPhishyValues[Math.floor(Math.random() * nonPhishyValues.length)];
-            } else {
-                return availableValues[0]; // Fallback to first available if no specific type found
-            }
-        }
-        
-        /**
-         * Generates a random phishing email for the Spot the Phish challenge.
-         * @param {string} difficulty - 'easy', 'medium', 'hard'.
-         * @returns {object} The generated email data with display values and phishy flags.
-         */
-        function generateRandomPhishingEmail(difficulty) {
-            let phishyCount = 0;
-            const generatedEmail = {};
-            const phishyDataElementKeys = new Set(); // Store data-element keys that *should* be flagged
-
-            // Determine min/max phishy elements based on difficulty
-            let minPhishy, maxPhishy;
-            switch (difficulty) {
-                case 'easy': minPhishy = 1; maxPhishy = 2; break;
-                case 'medium': minPhishy = 3; maxPhishy = 4; break;
-                case 'hard': minPhishy = 5; maxPhishy = Object.keys(optionsData).length + 2; break; // Max all + extra info requests
-                default: minPhishy = 2; maxPhishy = 3;
-            }
-
-            // Shuffle keys to randomize the order in which we decide to make elements phishy
-            const shuffledKeys = Object.keys(optionsData).filter(key => key !== 'infoRequest').sort(() => 0.5 - Math.random());
-
-            for (const key of shuffledKeys) {
-                const forcePhishyThisElement = (phishyCount < minPhishy) ? true : (Math.random() < 0.5 && phishyCount < maxPhishy);
-                const selectedValue = getRandomOptionValue(key, forcePhishyThisElement, difficulty); // Pass difficulty
-                const selectedOptionData = optionsData[key].options[selectedValue];
-
-                generatedEmail[key] = {
-                    value: selectedValue,
-                    display: selectedOptionData.message,
-                    isPhishy: selectedOptionData.isPhishy
-                };
-
-                if (selectedOptionData.isPhishy) {
-                    phishyCount++;
-                    phishyDataElementKeys.add(optionsData[key].dataElementKey);
-                }
-            }
-
-            // Handle infoRequest checkboxes - ensure at least one if needed for difficulty
-            generatedEmail.reqPassword = false;
-            generatedEmail.reqCreditCard = false;
-            generatedEmail.reqSSN = false;
-            
-            let infoRequestOptionKeys = ['reqPassword', 'reqCreditCard', 'reqSSN'];
-            
-            // Ensure some info requests are phishy if needed for difficulty
-            if (phishyCount < minPhishy) {
-                let shuffledInfoRequests = infoRequestOptionKeys.sort(() => 0.5 - Math.random());
-                for (let i = 0; i < shuffledInfoRequests.length && phishyCount < minPhishy; i++) {
-                    generatedEmail[shuffledInfoRequests[i]] = true;
-                    phishyCount++;
-                    phishyDataElementKeys.add(optionsData.infoRequest.dataElementKey);
-                }
-            } else { // Otherwise, randomly add them if within max and random chance
-                infoRequestOptionKeys.forEach(reqKey => {
-                    // For 'hard', give a higher chance for multiple info requests
-                    const randomChance = (difficulty === 'hard' ? 0.5 : 0.3); // 50% for hard, 30% for others
-                    if (Math.random() < randomChance && phishyCount < maxPhishy) {
-                        generatedEmail[reqKey] = true;
-                        phishyCount++;
-                        phishyDataElementKeys.add(optionsData.infoRequest.dataElementKey);
-                    }
-                });
-            }
-
-            generatedEmail.phishyTargets = [...phishyDataElementKeys];
-
-            return generatedEmail;
-        }
-
-        /**
-         * Handles clicking on preview elements in "Spot the Phish" mode.
-         * @param {Event} event - The click event.
-         */
-        function handlePreviewElementClick(event) {
-            const element = event.currentTarget;
-            const dataElement = element.dataset.element; // Get the data-element key
-
-            if (userClickedElements.has(dataElement)) {
-                userClickedElements.delete(dataElement);
-                element.classList.remove('red-flag', 'wrong-flag'); // Remove any highlight
-            } else {
-                userClickedElements.add(dataElement);
-                // Temporarily add a highlight, actual correct/wrong will be applied on check
-                element.classList.add('red-flag');
-            }
-            // Clear previous score/feedback when user is still interacting
-            scoreResultDiv.classList.add('hidden');
-        }
-
-        /**
-         * Checks the user's answers in "Spot the Phish" mode and calculates score.
-         */
-        function checkSpotThePhishAnswers() {
-            let score = 0;
-            const feedback = [];
-            const breakdown = {};
-
-            const correctPhishyDataElementKeys = new Set(generatedPhishEmail.phishyTargets);
-            
-            // Loop through all preview elements to check user's clicks vs. actual phishy elements
-            document.querySelectorAll('.preview-element').forEach(previewEl => {
-                const elementDataKey = previewEl.dataset.element; // e.g., 'sender', 'subject', 'link'
-                
-                previewEl.classList.remove('red-flag', 'wrong-flag'); // Clear temp flags
-
-                const isActuallyPhishy = correctPhishyDataElementKeys.has(elementDataKey);
-                const wasUserClicked = userClickedElements.has(elementDataKey);
-
-                if (wasUserClicked) {
-                    if (isActuallyPhishy) {
-                        score += 10;
-                        previewEl.classList.add('red-flag'); // Correctly identified a red flag
-                        feedback.push({ icon: '✅', message: `Correctly identified: ${optionsData[elementDataKey]?.category || 'Element'}` });
-                        breakdown[optionsData[elementDataKey]?.category || 'Unknown'] = (breakdown[optionsData[elementDataKey]?.category || 'Unknown'] || 0) + 10;
-                    } else {
-                        score -= 5;
-                        previewEl.classList.add('wrong-flag'); // Incorrectly identified as phishy
-                        feedback.push({ icon: '❌', message: `Incorrectly identified: ${optionsData[elementDataKey]?.category || 'Element'} (This was not a red flag)` });
-                        breakdown[optionsData[elementDataKey]?.category || 'Unknown'] = (breakdown[optionsData[elementDataKey]?.category || 'Unknown'] || 0) - 5;
-                    }
-                } else { // User did NOT click this element
-                    if (isActuallyPhishy) {
-                        score -= 10;
-                        previewEl.classList.add('red-flag'); // Missed red flag, highlight it for learning
-                        feedback.push({ icon: '❗', message: `Missed red flag: ${optionsData[elementDataKey]?.category || 'Element'}` });
-                        breakdown[optionsData[elementDataKey]?.category || 'Unknown'] = (breakdown[optionsData[elementDataKey]?.category || 'Unknown'] || 0) - 10;
-                    }
-                    // If not clicked and not actually phishy, it's correct (no penalty/reward, no highlight)
-                }
-            });
-            
-            score = Math.max(0, score); // Score cannot go below 0
-            score = Math.min(score, 100); // Cap at 100
-
-            setHighScore(score, 'spot'); // Save high score for spot mode
-            displayScore(score, feedback, breakdown, 'spot');
-        }
-
-
-        // --- Common Display Functions ---
-
-        /**
-         * Determines the interpretation of the phishing score.
-         * @param {number} score - The calculated phishing score.
-         * @param {string} mode - 'build' or 'spot'.
-         * @returns {string} A descriptive interpretation.
-         */
-        function interpretScore(score, mode) {
-            if (mode === 'build') {
-                if (score === 0) return "Looks Legit: Excellent job! This email shows no obvious phishing signs.";
-                if (score > 0 && score <= 20) return "Low Risk: Only minor red flags detected. You're doing well!";
-                if (score > 20 && score <= 40) return "Some Suspicion: A few phishing characteristics are present. Be cautious!";
-                if (score > 40 && score <= 60) return "Moderately Risky: Several common phishing tactics used. Watch out!";
-                if (score > 60 && score <= 80) return "Highly Suspicious: This email is clearly trying to phish. Good job identifying the risks!";
-                if (score > 80 && score <= 99) return "Very Dangerous Phish: Almost a perfect phishing attempt. Great for awareness!";
-                if (score === 100) return "Master Phisher! You've crafted a perfectly malicious email. Use your powers for good!";
-            } else { // Spot mode
-                if (score === 100) return "Expert Phish Spotter! You caught every trick. Well done!";
-                if (score >= 80) return "Great Job! You spotted most of the red flags.";
-                if (score >= 60) return "Good Effort! You identified many phishing signs.";
-                if (score >= 30) return "Keep Practicing! You caught some, but missed others.";
-                if (score < 30) return "Needs Practice: Many red flags were missed. Review the tips!";
-            }
-            return "";
-        }
-
-        /**
-         * Displays the score and feedback to the user.
-         * @param {number} score - The calculated phishing score.
-         * @param {Array<object>} feedbackMessages - An array of feedback messages.
-         * @param {object} breakdown - Object with category scores.
-         * @param {string} mode - 'build' or 'spot'.
-         */
-        function displayScore(score, feedbackMessages, breakdown, mode) {
-            scoreValueSpan.textContent = score;
-            scoreInterpretationDiv.textContent = interpretScore(score, mode);
-            feedbackDiv.innerHTML = '';
-            scoreBreakdownDiv.innerHTML = '';
-            
-            if (mode === 'build') {
-                reportPhishBtn.classList.remove('hidden'); // Show report button in build mode
-                reportMessageDiv.classList.add('hidden'); // Hide report success message
-                if (score === 0) {
-                    feedbackDiv.innerHTML = '<p class="text-gray-400">No common phishing characteristics detected. This looks like a legitimate email!</p>';
-                    reportPhishBtn.classList.add('hidden');
-                } else {
-                    feedbackMessages.forEach(item => {
-                        if (item.icon && item.icon !== '✅') {
-                            const p = document.createElement('p');
-                            p.className = 'feedback-item';
-                            p.innerHTML = `<span class="feedback-icon">${item.icon}</span><span>${item.message}</span>`;
-                            feedbackDiv.appendChild(p);
-                        }
+                    // Deselect previous option in the same category
+                    document.querySelectorAll(`.email-part-option[data-category="${category}"]`).forEach(btn => {
+                        btn.classList.remove('selected');
                     });
+
+                    // Select current option
+                    event.target.classList.add('selected');
+                    selectedOptions[category] = value;
+                    updateBuildPhishPreview(); // Update preview when an option is selected
+                });
+            });
+
+            // Initialize selected options (optional, can be empty)
+            for (const categoryKey in phishingCategories) {
+                const firstOption = phishingCategories[categoryKey].options[0];
+                if (firstOption) {
+                    selectedOptions[categoryKey] = firstOption.value;
+                    // Visually select the first option
+                    const btn = document.querySelector(`.email-part-option[data-category="${categoryKey}"][data-value="${firstOption.value}"]`);
+                    if (btn) btn.classList.add('selected');
                 }
-            } else { // Spot mode
-                 reportPhishBtn.classList.add('hidden'); // Hide report button in spot mode
-                 reportMessageDiv.classList.add('hidden'); // Hide report success message
-                 if (feedbackMessages.length === 0 && score === 0) { // Should not happen with well-generated phish
-                    feedbackDiv.innerHTML = '<p class="text-gray-400">No red flags identified or missed. Try a new challenge!</p>';
+            }
+            updateBuildPhishPreview(); // Initial preview render
+        }
+
+        // Function to update the email preview in Build Mode
+        function updateBuildPhishPreview() {
+            let previewHtml = '';
+            const senderOption = phishingCategories.sender.options.find(opt => opt.value === selectedOptions.sender);
+            const subjectOption = phishingCategories.subject.options.find(opt => opt.value === selectedOptions.subject);
+            const bodyOption = phishingCategories.body.options.find(opt => opt.value === selectedOptions.body);
+            const linkOption = phishingCategories.link.options.find(opt => opt.value === selectedOptions.link);
+
+            if (senderOption) {
+                previewHtml += `<p><strong>From:</strong> ${senderOption.emailContent}</p>`;
+            }
+            if (subjectOption) {
+                previewHtml += `<p><strong>Subject:</strong> ${subjectOption.emailContent}</p>`;
+            }
+            previewHtml += `<hr class="my-4 border-gray-600">`;
+            if (bodyOption) {
+                previewHtml += `<p class="mb-4">${bodyOption.emailContent}</p>`;
+            }
+
+            if (linkOption) {
+                if (linkOption.value === "embedded-button") {
+                    previewHtml += `<p class="mb-4">Please click here to proceed: ${linkOption.emailContent}</p>`;
+                } else if (linkOption.value !== "no-link") {
+                    previewHtml += `<p class="mb-4">Please click here to proceed: <a href="#" class="text-AB2328 hover:underline">${linkOption.emailContent}</a></p>`;
                 } else {
-                    feedbackMessages.forEach(item => {
-                        const p = document.createElement('p');
-                        p.className = 'feedback-item';
-                        p.innerHTML = `<span class="feedback-icon">${item.icon}</span><span>${item.message}</span>`;
-                        feedbackDiv.appendChild(p);
-                    });
+                    previewHtml += `<p class="mb-4">${linkOption.emailContent}</p>`;
                 }
             }
 
+            previewHtml += `<p>Thank you,</p><p>The Support Team</p>`;
 
-            // Display score breakdown
-            for (const category in breakdown) {
-                const li = document.createElement('li');
-                li.textContent = `${category}: ${breakdown[category]} points`;
-                scoreBreakdownDiv.appendChild(li);
-            }
-
-            scoreResultDiv.classList.remove('hidden');
+            buildPhishEmailPreview.innerHTML = previewHtml;
         }
 
-        /**
-         * Resets the game to its initial state based on the current mode.
-         * Clears inputs, hides score, and updates preview.
-         */
-        function resetGame() {
-            scoreResultDiv.classList.add('hidden');
-            feedbackDiv.innerHTML = '';
-            scoreValueSpan.textContent = '0';
-            scoreInterpretationDiv.textContent = '';
-            scoreBreakdownDiv.innerHTML = '';
-            reportPhishBtn.classList.add('hidden');
-            reportMessageDiv.classList.add('hidden');
-            toggleLegit.checked = false; // Ensure legitimate example is off
 
-            if (currentMode === 'build') {
-                allSelects.forEach(select => select.value = '0');
-                allCheckboxes.forEach(checkbox => checkbox.checked = false);
-                // Ensure form elements are enabled for build mode
-                allSelects.forEach(select => {
-                    select.disabled = false;
-                    select.style.opacity = '1';
-                    select.style.cursor = 'pointer';
-                });
-                allCheckboxes.forEach(checkbox => {
-                    checkbox.disabled = false;
-                    if (checkbox.parentElement) {
-                        checkbox.parentElement.style.opacity = '1';
-                        checkbox.parentElement.style.cursor = 'pointer';
-                    }
-                });
-                scoreBtn.disabled = false;
-                scoreBtn.style.opacity = '1';
-                scoreBtn.style.cursor = 'pointer';
-                resetBtn.disabled = false;
-                resetBtn.style.opacity = '1';
-                resetBtn.style.cursor = 'pointer';
-                toggleLegitLabel.style.opacity = '1'; // Ensure legit toggle label is enabled
-                toggleLegitLabel.style.cursor = 'pointer';
-                updateEmailPreview(getCurrentUserEmailSelections());
-            } else { // Spot mode reset
-                userClickedElements.clear(); // Clear user's current selections
-                generatedPhishEmail = {}; // Clear generated email
-                document.querySelectorAll('.preview-element').forEach(el => {
-                    el.classList.remove('red-flag', 'wrong-flag'); // Clear highlights
-                    el.removeEventListener('click', handlePreviewElementClick); // Remove click listeners
-                    el.style.cursor = 'default';
-                });
-                // Hide spot mode buttons that appear after challenge starts
-                checkPhishBtn.classList.add('hidden');
-                resetSpotBtn.classList.add('hidden');
-                // Re-enable new challenge button
-                newChallengeBtn.disabled = false;
-                newChallengeBtn.style.opacity = '1';
-                newChallengeBtn.style.cursor = 'pointer';
-                // Reset preview to empty state
-                updateEmailPreview({
-                    sender: { display: '[New Challenge]', value: '0' },
-                    senderName: { display: '[New Challenge]', value: '0' }, 
-                    subject: { display: '[New Challenge]', value: '0' },
-                    greeting: { display: '[New Challenge]', value: '0' },
-                    mainContent: { display: '[Click "New Phishing Challenge" to begin!]', value: '0' },
-                    grammarSpelling: { display: '', value: '0' }, 
-                    reqPassword: false, reqCreditCard: false, reqSSN: false,
-                    linkText: { display: '', value: '0' },
-                    actualLink: { display: '', value: '0' },
-                    attachment: { display: '', value: '0' } 
-                }, false, true); // Still in spot mode, so enable click listeners for new challenge
+        // Function to calculate and display phish score for Build Your Phish
+        function calculatePhishScore() {
+            currentPhishScore = 0;
+            let explanationsHtml = '';
+
+            for (const categoryKey in selectedOptions) {
+                const selectedValue = selectedOptions[categoryKey];
+                const categoryData = phishingCategories[categoryKey];
+                const option = categoryData.options.find(opt => opt.value === selectedValue);
+
+                if (option) {
+                    currentPhishScore += option.score;
+                    explanationsHtml += `<p><strong>${categoryData.title}: ${option.message}</strong><br>${option.explanation}</p>`;
+                }
             }
+
+            // Update high score if current score is higher
+            if (currentPhishScore > window.highScore) { // Use window.highScore
+                window.highScore = currentPhishScore; // Update window.highScore
+                localStorage.setItem('phishcraftHighScore', window.highScore);
+                updateHighScoreDisplay(); // This will also trigger Firestore update, passing 'build' mode
+            }
+
+            // Set the modal text, including the score for Build Your Phish mode
+            modalText.innerHTML = `
+                <p class="text-xl font-bold text-center mb-4">Your Phish Score: <span class="text-AB2328">${currentPhishScore}</span></p>
+                <h3 class="text-2xl font-semibold text-AB2328 mb-3">Breakdown:</h3>
+                ${explanationsHtml || '<p>No specific explanation available for this category.</p>'}
+            `;
+            infoModal.classList.add('show');
         }
 
-        // --- Mode Switching ---
-
-        /**
-         * Switches the game mode between 'build' and 'spot'.
-         * @param {string} mode - The mode to switch to ('build' or 'spot').
-         */
+        // Function to switch between modes
         function switchMode(mode) {
             currentMode = mode;
             buildModeBtn.classList.remove('active');
             spotModeBtn.classList.remove('active');
+            buildModeContent.classList.add('spot-mode-hidden');
+            spotModeContent.classList.add('spot-mode-hidden');
+            spotPhishEmailPreview.classList.remove('spot-mode'); // Remove spot-mode class when switching away
 
             if (mode === 'build') {
                 buildModeBtn.classList.add('active');
-                buildModeSection.classList.remove('hidden');
-                spotModeSection.classList.add('hidden');
-                // Re-enable legitimate example toggle in build mode
-                toggleLegit.disabled = false;
-                toggleLegitLabel.style.opacity = '1';
-                toggleLegitLabel.style.cursor = 'pointer';
-            } else { // spot mode
+                buildModeContent.classList.remove('spot-mode-hidden');
+                gameInstructions.innerHTML = buildModeInstructions;
+                renderEmailBuilder(); // Re-render to ensure selections are visible and update preview
+            } else if (mode === 'spot') {
                 spotModeBtn.classList.add('active');
-                buildModeSection.classList.add('hidden');
-                spotModeSection.classList.remove('hidden');
-                 // Disable legitimate example toggle in spot mode
-                toggleLegit.checked = false;
-                toggleLegit.disabled = true;
-                toggleLegitLabel.style.opacity = '0.6';
-                toggleLegitLabel.style.cursor = 'not-allowed';
+                spotModeContent.classList.remove('spot-mode-hidden');
+                gameInstructions.innerHTML = spotModeInstructions;
+                generateSpotPhishEmail(); // Generate a new email for Spot the Phish mode
+                spotPhishEmailPreview.classList.add('spot-mode'); // Add spot-mode class for styling clickable elements
             }
-            resetGame(); // Reset game state for the new mode
         }
 
-        // --- Event Listeners ---
+        // Function to generate a random phishing email for Spot the Phish mode
+        function generateSpotPhishEmail() {
+            identifiedPhishElements.clear(); // Reset identified elements
+            spotPhishScore = 0;
+            phishSpotScoreDisplay.textContent = spotPhishScore;
+            spotPhishEmailPreview.innerHTML = ''; // Clear previous email
 
-        // Mode switch buttons
-        buildModeBtn.addEventListener('click', () => switchMode('build'));
-        spotModeBtn.addEventListener('click', () => switchMode('spot'));
+            const selectedSpotOptions = {};
+            let emailHtml = '';
 
-        // Build Mode specific listeners
-        allSelects.forEach(select => {
-            select.addEventListener('change', () => {
-                if (currentMode === 'build' && !toggleLegit.checked) updateEmailPreview(getCurrentUserEmailSelections());
-            });
-        });
-        allCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', () => {
-                if (currentMode === 'build' && !toggleLegit.checked) updateEmailPreview(getCurrentUserEmailSelections());
-            });
-        });
-        scoreBtn.addEventListener('click', () => {
-            if (currentMode === 'build') {
-                const { score, feedback, breakdown } = scoreBuildEmail();
-                displayScore(score, feedback, breakdown, 'build');
-            }
-        });
-        resetBtn.addEventListener('click', resetGame);
-
-        // Spot Mode specific listeners
-        newChallengeBtn.addEventListener('click', () => {
-            userClickedElements.clear(); // Clear previous selections
-            document.querySelectorAll('.preview-element').forEach(el => {
-                el.classList.remove('red-flag', 'wrong-flag'); // Clear any previous highlights
-            });
-            scoreResultDiv.classList.add('hidden'); // Hide previous score
-            reportMessageDiv.classList.add('hidden');
-
-            const difficulty = difficultySelect.value;
-            generatedPhishEmail = generateRandomPhishingEmail(difficulty);
-            updateEmailPreview(generatedPhishEmail, false, true); // Show generated phish, enable click listeners
-
-            checkPhishBtn.classList.remove('hidden'); // Show check answers button
-            resetSpotBtn.classList.remove('hidden'); // Show reset challenge button
-            newChallengeBtn.disabled = true; // Disable new challenge until current one is checked
-            newChallengeBtn.style.opacity = '0.6';
-            newChallengeBtn.style.cursor = 'not-allowed';
-        });
-
-        checkPhishBtn.addEventListener('click', () => {
-            checkSpotThePhishAnswers();
-            checkPhishBtn.classList.add('hidden'); // Hide after checking
-            newChallengeBtn.disabled = false; // Re-enable new challenge button
-            newChallengeBtn.style.opacity = '1';
-            newChallengeBtn.style.cursor = 'pointer';
-        });
-
-        resetSpotBtn.addEventListener('click', resetGame);
-
-
-        // Toggle for legitimate email example (affects both modes but disabled in spot mode)
-        toggleLegit.addEventListener('change', () => {
-            if (currentMode === 'build') {
-                if (toggleLegit.checked) {
-                    allSelects.forEach(select => { select.disabled = true; select.style.opacity = '0.6'; select.style.cursor = 'not-allowed'; });
-                    allCheckboxes.forEach(checkbox => {
-                        checkbox.disabled = true;
-                        if (checkbox.parentElement) {
-                            checkbox.parentElement.style.opacity = '0.6';
-                            checkbox.parentElement.style.cursor = 'not-allowed';
-                        }
-                    });
-                    scoreBtn.disabled = true; scoreBtn.style.opacity = '0.6'; scoreBtn.style.cursor = 'not-allowed';
-                    resetBtn.disabled = true; resetBtn.style.opacity = '0.6'; resetBtn.style.cursor = 'not-allowed';
-                    toggleLegitLabel.style.opacity = '0.6'; // Disable toggle label visually
-                    toggleLegitLabel.style.cursor = 'not-allowed';
-                    updateEmailPreview(legitimateEmailOptions, true);
-                    scoreResultDiv.classList.add('hidden');
-                } else {
-                    allSelects.forEach(select => { select.disabled = false; select.style.opacity = '1'; select.style.cursor = 'pointer'; });
-                    allCheckboxes.forEach(checkbox => {
-                        checkbox.disabled = false;
-                        if (checkbox.parentElement) {
-                            checkbox.parentElement.style.opacity = '1';
-                            checkbox.parentElement.style.cursor = 'pointer';
-                        }
-                    });
-                    scoreBtn.disabled = false; scoreBtn.style.opacity = '1'; scoreBtn.style.cursor = 'pointer';
-                    resetBtn.disabled = false; resetBtn.style.opacity = '1'; resetBtn.style.cursor = 'pointer';
-                    toggleLegitLabel.style.opacity = '1'; // Enable toggle label visually
-                    toggleLegitLabel.style.cursor = 'pointer';
-                    updateEmailPreview(getCurrentUserEmailSelections());
-                }
-            } else {
-                // If in spot mode, this toggle is disabled by switchMode, so nothing happens here.
-                toggleLegit.checked = false; // Ensure it stays off if attempted to turn on in spot mode
-            }
-        });
-
-
-        // Report Phish Button (common for score results, mainly used in build mode)
-        reportPhishBtn.addEventListener('click', () => {
-            reportMessageDiv.classList.remove('hidden');
-            reportPhishBtn.classList.add('hidden');
-            setTimeout(() => {
-                reportMessageDiv.classList.add('hidden');
-            }, 8000); // Message stays longer to allow reading resources
-        });
-
-
-        // Info modal logic (for individual 'i' buttons)
-        document.querySelectorAll('.info-button').forEach(button => {
-            button.addEventListener('click', (event) => {
-                const targetId = event.target.dataset.infoTarget;
-                const categoryData = optionsData[targetId];
-                if (categoryData) {
-                    modalTitle.textContent = categoryData.category + ' Tactics';
-                    let explanationsHtml = '';
-                    if (['infoRequest', 'attachment', 'grammarSpelling', 'senderName'].includes(targetId)) { 
-                        for (const key in categoryData.options) {
-                            if (categoryData.options[key].isPhishy && categoryData.options[key].explanation) {
-                                explanationsHtml += `<p><strong>${categoryData.options[key].message}</strong><br>${categoryData.options[key].explanation}</p>`;
-                            }
-                        }
+            // Randomly select one option from each category
+            for (const categoryKey in phishingCategories) {
+                const options = phishingCategories[categoryKey].options;
+                // Ensure we don't pick 'no-link' for the link category if we want a clickable element
+                let randomIndex;
+                if (categoryKey === 'link') {
+                    // Pick any link option except 'no-link' for the main clickable element
+                    const clickableLinkOptions = options.filter(opt => opt.value !== 'no-link');
+                    // If no clickable links, fall back to any link
+                    if (clickableLinkOptions.length > 0) {
+                        randomIndex = Math.floor(Math.random() * clickableLinkOptions.length);
+                        selectedSpotOptions[categoryKey] = clickableLinkOptions[randomIndex];
                     } else {
-                        for (const value in categoryData.options) {
-                            if (categoryData.options[value].isPhishy && categoryData.options[value].explanation) { 
-                                explanationsHtml += `<p><strong>${categoryData.options[value].message}</strong><br>${categoryData.options[value].explanation}</p>`;
-                            }
+                        randomIndex = Math.floor(Math.random() * options.length);
+                        selectedSpotOptions[categoryKey] = options[randomIndex];
+                    }
+                } else {
+                    randomIndex = Math.floor(Math.random() * options.length);
+                    selectedSpotOptions[categoryKey] = options[randomIndex];
+                }
+            }
+
+            currentSpotPhishData = selectedSpotOptions; // Store for checking
+
+            // Construct the email content with clickable elements
+            // Sender
+            emailHtml += `<p><strong>From:</strong> <span class="clickable-phish-element" data-category="sender" data-value="${selectedSpotOptions.sender.value}">${selectedSpotOptions.sender.emailContent}</span></p>`;
+            // Subject
+            emailHtml += `<p><strong>Subject:</strong> <span class="clickable-phish-element" data-category="subject" data-value="${selectedSpotOptions.subject.value}">${selectedSpotOptions.subject.emailContent}</span></p>`;
+            emailHtml += `<hr class="my-4 border-gray-600">`;
+
+            // Body
+            emailHtml += `<p class="mb-4"><span class="clickable-phish-element" data-category="body" data-value="${selectedSpotOptions.body.value}">${selectedSpotOptions.body.emailContent}</span></p>`;
+
+            // Link/Call to Action - integrate dynamically based on selected link type
+            let linkElementHtml = '';
+            if (selectedSpotOptions.link.value === "embedded-button") {
+                linkElementHtml = `<span class="clickable-phish-element" data-category="link" data-value="${selectedSpotOptions.link.value}">${selectedSpotOptions.link.emailContent}</span>`;
+            } else if (selectedSpotOptions.link.value !== "no-link") {
+                linkElementHtml = `<a href="#" class="text-AB2328 hover:underline clickable-phish-element" data-category="link" data-value="${selectedSpotOptions.link.value}">${selectedSpotOptions.link.emailContent}</a>`;
+            } else {
+                 linkElementHtml = selectedSpotOptions.link.emailContent; // Just text if no-link
+            }
+            emailHtml += `<p class="mb-4">Please click here to proceed: ${linkElementHtml}</p>`;
+
+            // Add a closing remark, potentially with another clickable element for sender context
+            emailHtml += `<p>Thank you,</p><p>The <span class="clickable-phish-element" data-category="sender" data-value="${selectedSpotOptions.sender.value}">Support Team</span></p>`;
+
+
+            spotPhishEmailPreview.innerHTML = emailHtml;
+
+            // Add click listeners to the generated email elements
+            document.querySelectorAll('#spotPhishEmailPreview .clickable-phish-element').forEach(element => {
+                element.addEventListener('click', (event) => {
+                    const category = event.target.dataset.category;
+                    const value = event.target.dataset.value;
+                    const key = `${category}-${value}`;
+
+                    if (!identifiedPhishElements.has(key)) {
+                        const option = phishingCategories[category].options.find(opt => opt.value === value);
+                        // Only add score if the element is actually a phishing indicator (score > 0)
+                        if (option && option.score > 0) {
+                            spotPhishScore += option.score;
+                            phishSpotScoreDisplay.textContent = spotPhishScore;
+                            identifiedPhishElements.add(key);
+                            event.target.classList.add('identified'); // Mark as identified
+                        } else {
+                            // Optional: Deduct points for incorrect guesses
+                            // spotPhishScore = Math.max(0, spotPhishScore - 5);
+                            // phishSpotScoreDisplay.textContent = spotPhishScore;
+                            // console.log("Incorrect guess, no points added.");
                         }
                     }
-                    modalText.innerHTML = explanationsHtml || '<p>No specific explanation available for this category.</p>';
-                    infoModal.classList.add('show');
-                }
+                });
             });
-        });
+        }
 
+        // Function to check the Spot the Phish score
+        function checkSpotPhish() {
+            let totalPossibleScore = 0;
+            let identifiedCount = 0;
+            let explanationsHtml = '';
+
+            for (const categoryKey in currentSpotPhishData) {
+                const option = currentSpotPhishData[categoryKey];
+                if (option.score > 0) { // Only count actual phishing elements
+                    totalPossibleScore += option.score;
+                    const key = `${categoryKey}-${option.value}`;
+                    if (identifiedPhishElements.has(key)) {
+                        identifiedCount++;
+                        explanationsHtml += `<p><strong>Identified: ${phishingCategories[categoryKey].title} - ${option.message}</strong><br>${option.explanation}</p>`;
+                    } else {
+                        explanationsHtml += `<p class="text-AB2328"><strong>Missed: ${phishingCategories[categoryKey].title} - ${option.message}</strong><br>${option.explanation}</p>`;
+                    }
+                }
+            }
+
+            modalText.innerHTML = `
+                <p class="text-xl font-bold text-center mb-4">Your Spot Phish Score: <span class="text-AB2328">${spotPhishScore}</span> / ${totalPossibleScore}</p>
+                <p class="text-center mb-4">${identifiedCount} out of ${Object.values(currentSpotPhishData).filter(opt => opt.score > 0).length} phishing elements identified.</p>
+                <h3 class="text-2xl font-semibold text-AB2328 mb-3">Review:</h3>
+                ${explanationsHtml || '<p>No specific explanation available for this email.</p>'}
+            `;
+            infoModal.classList.add('show');
+
+            // Update high score for Spot the Phish if applicable
+            if (spotPhishScore > window.highScore) { // Use window.highScore
+                window.highScore = spotPhishScore; // Update window.highScore
+                localStorage.setItem('phishcraftHighScore', window.highScore);
+                updateHighScoreDisplay(); // This will also trigger Firestore update, passing 'spot' mode
+            }
+        }
+
+
+        // Event Listeners
+        submitPhishBtn.addEventListener('click', calculatePhishScore);
         closeModalBtn.addEventListener('click', () => {
             infoModal.classList.remove('show');
         });
-
         window.addEventListener('click', (event) => {
             if (event.target === infoModal) {
                 infoModal.classList.remove('show');
             }
         });
 
-        // NEW: General Tips Modal logic
+        // Mode switching event listeners
+        buildModeBtn.addEventListener('click', () => switchMode('build'));
+        spotModeBtn.addEventListener('click', () => switchMode('spot'));
+
+        // Spot the Phish mode buttons
+        checkPhishBtn.addEventListener('click', checkSpotPhish);
+        newPhishBtn.addEventListener('click', generateSpotPhishEmail);
+
+        // General Tips Modal logic
         generalTipsBtn.addEventListener('click', () => {
             generalTipsModal.classList.add('show');
         });
@@ -1731,6 +878,127 @@
         window.addEventListener('click', (event) => {
             if (event.target === generalTipsModal) {
                 generalTipsModal.classList.remove('show');
+            }
+        });
+
+        // Admin Login Logic
+        adminLoginBtn.addEventListener('click', () => {
+            adminPasswordInput.value = ''; // Clear input
+            adminPasswordError.classList.add('hidden'); // Hide error
+            adminPasswordModal.classList.add('show');
+        });
+
+        closeAdminPasswordModalBtn.addEventListener('click', () => {
+            adminPasswordModal.classList.remove('show');
+        });
+
+        window.addEventListener('click', (event) => {
+            if (event.target === adminPasswordModal) {
+                adminPasswordModal.classList.remove('show');
+            }
+        });
+
+        submitAdminPasswordBtn.addEventListener('click', async () => {
+            const password = adminPasswordInput.value;
+            if (password === 'PAC365') {
+                adminPasswordModal.classList.remove('show');
+                await displayAdminLog();
+                adminLogModal.classList.add('show');
+            } else {
+                adminPasswordError.classList.remove('hidden');
+            }
+        });
+
+        closeAdminLogModalBtn.addEventListener('click', () => {
+            adminLogModal.classList.remove('show');
+        });
+
+        window.addEventListener('click', (event) => {
+            if (event.target === adminLogModal) {
+                adminLogModal.classList.remove('show');
+            }
+        });
+
+        async function displayAdminLog() {
+            adminLogContent.innerHTML = '<p>Loading user data...</p>';
+            const userScores = await window.fetchAllUserScores(); // Call the global function
+
+            if (userScores.length === 0) {
+                adminLogContent.innerHTML = '<p>No user data available yet.</p>';
+                return;
+            }
+
+            let logHtml = `<table class="min-w-full bg-gray-800 rounded-lg overflow-hidden">
+                <thead class="bg-gray-700">
+                    <tr>
+                        <th class="py-2 px-4 text-left text-AB2328">User ID</th>
+                        <th class="py-2 px-4 text-left text-AB2328">High Score</th>
+                        <th class="py-2 px-4 text-left text-AB2328">Game Mode</th>
+                        <th class="py-2 px-4 text-left text-AB2328">Last Updated</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            userScores.sort((a, b) => b.highScore - a.highScore); // Sort by high score descending
+
+            userScores.forEach(user => {
+                const lastUpdatedDate = user.lastUpdated ? new Date(user.lastUpdated).toLocaleString() : 'N/A';
+                logHtml += `
+                    <tr class="border-b border-gray-600">
+                        <td class="py-2 px-4">${user.userId}</td>
+                        <td class="py-2 px-4">${user.highScore}</td>
+                        <td class="py-2 px-4">${user.gameMode || 'N/A'}</td> <!-- Display game mode -->
+                        <td class="py-2 px-4">${lastUpdatedDate}</td>
+                    </tr>
+                `;
+            });
+
+            logHtml += `</tbody></table>`;
+            adminLogContent.innerHTML = logHtml;
+        }
+
+        // Function to export admin log to CSV
+        exportCsvBtn.addEventListener('click', async () => {
+            const userScores = await window.fetchAllUserScores(); // Get the latest data
+
+            if (userScores.length === 0) {
+                // You could show a message here if there's no data to export
+                console.warn("No data to export to CSV.");
+                return;
+            }
+
+            // Define CSV headers
+            const headers = ["User ID", "High Score", "Game Mode", "Last Updated"];
+            let csvContent = headers.join(",") + "\n";
+
+            // Add data rows
+            userScores.forEach(user => {
+                const lastUpdatedDate = user.lastUpdated ? new Date(user.lastUpdated).toLocaleString() : 'N/A';
+                const row = [
+                    `"${user.userId}"`, // Enclose userId in quotes to handle potential commas
+                    user.highScore,
+                    `"${user.gameMode || 'N/A'}"`, // Enclose gameMode in quotes
+                    `"${lastUpdatedDate}"` // Enclose date in quotes
+                ];
+                csvContent += row.join(",") + "\n";
+            });
+
+            // Create a Blob and download the file
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            if (link.download !== undefined) { // Feature detection for download attribute
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", "phishcraft_user_scores.csv");
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                // Fallback for browsers that don't support the download attribute
+                console.error("Your browser does not support the download attribute. Please right-click and save the content.");
+                // You might open a new window with the CSV content here for manual copy
+                window.open('data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent));
             }
         });
 
